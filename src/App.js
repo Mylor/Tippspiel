@@ -247,22 +247,30 @@ Object.keys(koByRound).forEach((round) => {
 
     const KO_STRUCTURE = {
       round16: [
-        ["B2", "A2"],
         ["E1", "3ABCDF"],
-        ["F1", "C2"],
-        ["C1", "F2"],
         ["I1", "3CDFGH"],
-        ["E2", "I2"],
-        ["A1", "3CEFHI"],
-        ["L1", "3EHIJK"],
-        ["D1", "3BEFIJ"],
-        ["G1", "3AEHIJ"],
+
+        ["F1", "C2"],
+        ["B2", "A2"],
+
         ["K2", "L2"],
         ["H1", "J2"],
-        ["B1", "3EFGIJ"],
+
+        ["D1", "3BEFIJ"],
+        ["G1", "3AEHIJ"],
+
+        ["C1", "F2"],
+        ["E2", "I2"],
+
+        ["A1", "3CEFHI"],
+        ["L1", "3EHIJK"],
+        
         ["J1", "H2"],
-        ["K1", "3DEIJL"],
         ["D2", "G2"],
+
+        ["B1", "3EFGIJ"],
+        ["K1", "3DEIJL"],
+        
       ],
     };
 
@@ -303,60 +311,27 @@ Object.keys(koByRound).forEach((round) => {
       return null;
     }
 
-    const KO_NEXT = {
-      // Achtelfinale
-      2: [
-        [1, 4],
-        [0, 2],
-        [3, 5],
-        [6, 7],
-        [10, 11],
-        [8, 9],
-        [13, 15],
-        [12, 14],
-      ],
-
-      // Viertelfinale
-      3: [
-        [0, 1],
-        [4, 5],
-        [2, 3],
-        [6, 7],
-      ],
-
-      // Halbfinale
-      4: [
-        [0, 1],
-        [2, 3],
-      ],
-
-      // Finale
-      5: [
-        [0, 1],
-      ],
-    };
-
     function getTeamFromPrevious(roundIndex, matchIndex, side) {
-      const mapping = KO_NEXT[roundIndex + 1];
+      const rounds = Object.keys(koByRound)
+        .map(Number)
+        .sort((a, b) => a - b);
 
-      const rounds = Object.keys(koByRound).sort((a, b) => Number(a) - Number(b));
-      const currentRound = Number(rounds[roundIndex]);
-      const prevRound = koByRound[currentRound - 1];
+      const prevRoundKey = rounds[roundIndex - 1];
+      const prevRound = koByRound[prevRoundKey];
 
-      if (!mapping || !prevRound) return "?";
+      if (!prevRound) return "?";
 
-      const mapEntry = mapping[matchIndex];
-      if (!mapEntry) return "?";
+      // 🔥 LOGIK: einfach Paarweise
+      const sourceMatchIndex =
+        side === "A"
+          ? matchIndex * 2
+          : matchIndex * 2 + 1;
 
-      const [aIdx, bIdx] = mapEntry;
-      const sourceIndex = side === "A" ? aIdx : bIdx;
-
-      const sourceMatch = prevRound[sourceIndex];
+      const sourceMatch = prevRound[sourceMatchIndex];
       if (!sourceMatch) return "?";
 
       const winner = getWinner(sourceMatch.id);
       if (!winner) return "?";
-
 
       return winner === 1
         ? sourceMatch.team_a
