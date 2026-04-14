@@ -1,0 +1,17 @@
+import { useState, useMemo } from 'react';
+import { getBestThirds } from '../Utils/calcTable';
+
+export const useTournamentLogic = (initialData) => {
+  const [groups, setGroups] = useState(initialData);
+
+  // Berechnet die besten Dritten automatisch neu, wenn sich Gruppen ändern
+  const bestThirds = useMemo(() => {
+    return getBestThirds(groups);
+  }, [groups]);
+
+  const updateMatchResult = (groupId, matchId, goals1, goals2) => {
+    // ... Logik zum Updaten der Tore
+  };
+
+  return { groups, bestThirds, updateMatchResult };
+};

@@ -1,6 +1,9 @@
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "./supabaseClient";
 import { getBestThirds } from "./Utils/calcTable";
+import GroupTable  from './components/GroupTable';
+import KOBracket from './components/KOBracket';
+import BestThirdsTable from './components/BestThirdsTable';
 
 
 //////////////////////////////////////////
@@ -38,7 +41,7 @@ function TippsPage({ player, phaseId }) {
     .select("*"); // ❌ KEIN phase filter
 
   setMatches(data || []);
-}
+  }
 
   async function fetchTips() {
     const { data } = await supabase
@@ -208,7 +211,7 @@ function TippsPage({ player, phaseId }) {
   }
 
   //////////////////////////////////////////
-  // 7️⃣ KO SPIELE
+  // 7️⃣ KO SPIELE LOGIK & STRUKTUR
   //////////////////////////////////////////
   const koMatches = matches
     .filter((m) => m.stage === "ko")
@@ -216,444 +219,174 @@ function TippsPage({ player, phaseId }) {
       if (a.stage_order !== b.stage_order) {
         return a.stage_order - b.stage_order;
       }
-      return a.ko_order - b.ko_order; // 🔥 DAS IST ENTSCHEIDEND
+      return a.ko_order - b.ko_order;
     });
-
-  const isRealMatch = (match) => {
-    return match.stage_order === PHASE_ID;
-  };
 
   const koByRound = {};
-    koMatches.forEach((m) => {
-      if (!koByRound[m.stage_order]) koByRound[m.stage_order] = [];
-      koByRound[m.stage_order].push(m);
-    });
+  koMatches.forEach((m) => {
+    if (!koByRound[m.stage_order]) koByRound[m.stage_order] = [];
+    koByRound[m.stage_order].push(m);
+  });
 
-    
-// 🔥 HIER EINFÜGEN
-Object.keys(koByRound).forEach((round) => {
-  koByRound[round].sort((a, b) => a.ko_order - b.ko_order);
-});
+  // Sortierung und Spezialfall Finale
+  Object.keys(koByRound).forEach((round) => {
+    koByRound[round].sort((a, b) => a.ko_order - b.ko_order);
+    if (Number(round) === 5 && koByRound[round].length > 1) {
+      koByRound[round] = [
+        koByRound[round][1], // Finale
+        koByRound[round][0], // Platz 3
+      ];
+    }
+  });
 
-    // 🔥 NEU: Finale immer nach oben
-    Object.keys(koByRound).forEach((round) => {
-      if (Number(round) === 5) {
-        koByRound[round] = [
-          koByRound[round][1], // Finale
-          koByRound[round][0], // Platz 3
-        ];
-      }
-    });
-
-  //////////////////////////////////////////
-  // 8️⃣ UI
-  //////////////////////////////////////////
+  const KO_STRUCTURE = {
+    round16: [
+      ["E1", "3ABCDF"], ["I1", "3CDFGH"], ["F1", "C2"], ["B2", "A2"],
+      ["K2", "L2"], ["H1", "J2"], ["D1", "3BEFIJ"], ["G1", "3AEHIJ"],
+      ["C1", "F2"], ["E2", "I2"], ["A1", "3CEFHI"], ["L1", "3EHIJK"],
+      ["J1", "H2"], ["D2", "G2"], ["B1", "3EFGIJ"], ["K1", "3DEIJL"]
+    ],
+  };
 
   const roundNames = {
-    1: "Sechzehntelfinale",
-    2: "Achtelfinale",
-    3: "Viertelfinale",
-    4: "Halbfinale",
-    5: "Finale"
-    };
+    1: "Sechzehntelfinale", 2: "Achtelfinale", 3: "Viertelfinale", 4: "Halbfinale", 5: "Finale"
+  };
 
-    const KO_STRUCTURE = {
-      round16: [
-        ["E1", "3ABCDF"],
-        ["I1", "3CDFGH"],
+  //////////////////////////////////////////
+  // 8️⃣ BERECHNUNGEN (REIHENFOLGE KORRIGIERT)
+  //////////////////////////////////////////
 
-        ["F1", "C2"],
-        ["B2", "A2"],
+  // 1. Tabellen für Rangliste berechnen
+  const allGroupsArray = Object.keys(grouped).map((groupName) => ({
+    id: groupName,
+    teams: calculateTable(grouped[groupName], tips)
+  }));
 
-        ["K2", "L2"],
-        ["H1", "J2"],
+  // 2. Beste Drittplatzierte
+  const bestThirds = getBestThirds(allGroupsArray);
 
-        ["D1", "3BEFIJ"],
-        ["G1", "3AEHIJ"],
+  // 3. Layout-Konstanten (totalMatches VOR baseSpacing!)
+  const firstRoundKey = Object.keys(koByRound).sort((a, b) => a - b)[0];
+  const totalMatchesCount = koByRound[firstRoundKey]?.length || 1;
+  const currentBaseSpacing = treeHeight / totalMatchesCount;
 
-        ["C1", "F2"],
-        ["E2", "I2"],
-
-        ["A1", "3CEFHI"],
-        ["L1", "3EHIJK"],
-        
-        ["J1", "H2"],
-        ["D2", "G2"],
-
-        ["B1", "3EFGIJ"],
-        ["K1", "3DEIJL"],
-        
-      ],
-    };
-
-    function resolveSlot(slot, context) {
-      const { groups, thirdPlaces } = context;
-
-      if (/^[A-Z][12]$/.test(slot)) {
-        const group = slot[0];
-        const pos = Number(slot[1]) - 1;
-        return groups[group]?.[pos] || "?";
-      }
-
-      if (slot.startsWith("3")) {
-        const allowedGroups = slot.slice(1).split("");
-        const candidates = thirdPlaces.filter(t =>
-          allowedGroups.includes(t.group)
-        );
-        return candidates[0]?.team || "?";
-      }
-
-      return slot;
+  // 4. Positionierungs-Funktion
+  const getTopPosition = (roundIndex, matchIndex) => {
+    if (roundIndex === 4) {
+      return matchIndex === 0 ? (treeHeight / 2 - 30) : (treeHeight / 2 + 300);
     }
+    if (roundIndex === 0) return matchIndex * currentBaseSpacing;
+    const prevSpacing = currentBaseSpacing * Math.pow(2, roundIndex);
+    return matchIndex * prevSpacing + prevSpacing / 2 - currentBaseSpacing / 2;
+  };
 
-    function getWinner(matchId) {
-      const tip = tips[matchId];
-      if (!tip) return null;
+  // 5. Turnier-Kontext
+  const tournamentContext = {
+    groups: groupResults,
+    thirdPlaces: bestThirds,
+    tips: tips
+  };
 
-      // Wenn nur Gewinner gesetzt wurde (Fake Spiel)
-      if (tip.winner) return Number(tip.winner);
-
-      // Normales Spiel
-      const gA = Number(tip.goals_a);
-      const gB = Number(tip.goals_b);
-
-      if (gA > gB) return 1;
-      if (gB > gA) return 2;
-
-      return null;
+  //////////////////////////////////////////
+  // 9️⃣ HELFER-FUNKTIONEN
+  //////////////////////////////////////////
+  function resolveSlotLocal(slot) {
+    const { groups, thirdPlaces } = tournamentContext;
+    if (/^[A-Z][12]$/.test(slot)) {
+      const group = slot[0];
+      const pos = Number(slot[1]) - 1;
+      return groups[group]?.[pos] || "?";
     }
-
-    function getTeamFromPrevious(roundIndex, matchIndex, side) {
-      const rounds = Object.keys(koByRound)
-        .map(Number)
-        .sort((a, b) => a - b);
-
-      const prevRoundKey = rounds[roundIndex - 1];
-      const prevRound = koByRound[prevRoundKey];
-
-      if (!prevRound) return "?";
-
-      // 🔥 LOGIK: einfach Paarweise
-      const sourceMatchIndex =
-        side === "A"
-          ? matchIndex * 2
-          : matchIndex * 2 + 1;
-
-      const sourceMatch = prevRound[sourceMatchIndex];
-      if (!sourceMatch) return "?";
-
-      const winner = getWinner(sourceMatch.id);
-      if (!winner) return "?";
-
-      return winner === 1
-        ? sourceMatch.team_a
-        : sourceMatch.team_b;
+    if (slot.startsWith("3")) {
+      const allowedGroups = slot.slice(1).split("");
+      const candidates = thirdPlaces.filter(t => allowedGroups.includes(t.group));
+      return candidates[0]?.team || "?";
     }
+    return slot;
+  }
 
-    const totalMatches = koByRound[1]?.length || 1;
+  function getWinnerLocal(matchId) {
+    const tip = tips[matchId];
+    if (!tip) return null;
+    if (tip.winner) return Number(tip.winner);
+    const gA = Number(tip.goals_a);
+    const gB = Number(tip.goals_b);
+    if (gA > gB) return 1;
+    if (gB > gA) return 2;
+    return null;
+  }
 
-    // Höhe dynamisch abhängig vom Platz links (wichtig!)
+  function getTeamFromPreviousLocal(roundIndex, matchIndex, side) {
+    const rounds = Object.keys(koByRound).map(Number).sort((a, b) => a - b);
+    const prevRoundKey = rounds[roundIndex - 1];
+    const prevRound = koByRound[prevRoundKey];
+    if (!prevRound) return "?";
+    const sourceMatchIndex = side === "A" ? matchIndex * 2 : matchIndex * 2 + 1;
+    const sourceMatch = prevRound[sourceMatchIndex];
+    if (!sourceMatch) return "?";
+    const winner = getWinnerLocal(sourceMatch.id);
+    if (!winner) return "?";
+    return winner === 1 ? sourceMatch.team_a : sourceMatch.team_b;
+  } 
+    
+return (
+  <div style={{ padding: "20px" }}>
+    <h2>EM 2024 Tippspiel</h2>
 
-    const baseSpacing = treeHeight / totalMatches;
+    {/* 🌍 DIESER CONTAINER PACKT ALLES NEBENEINANDER */}
+    <div style={{ 
+      display: "flex", 
+      flexDirection: "row", // Nebeneinander
+      gap: "50px",          // Abstand zwischen Gruppen und KO-Baum
+      alignItems: "flex-start" 
+    }}>
 
-    const getTopPosition = (roundIndex, matchIndex) => {
-      // 🔥 SPEZIALFALL: Finale Runde
-      if (roundIndex === 4) {
-        if (matchIndex === 0) {
-          // Finale → exakt Mitte
-          return treeHeight / 2 - 30;
-        } else {
-          // Platz 3 → darunter mit Abstand
-          return treeHeight / 2 + 300;
-        }
-      }
-
-      if (roundIndex === 0) {
-        return matchIndex * baseSpacing;
-      }
-
-      const prevSpacing = baseSpacing * Math.pow(2, roundIndex);
-      return matchIndex * prevSpacing + prevSpacing / 2 - baseSpacing / 2;
-    };
-
-  return (
-    <div>
-      <h2>Tipps</h2>
-
-      {/* 🔲 HAUPT-LAYOUT */}
-      <div style={{ display: "flex", gap: "20px", alignItems: "flex-start" }}>
-
-        {/* 🟢 LINKS: GRUPPEN */}
+      {/* 🟢 LINKE SPALTE: GRUPPEN */}
+      <div style={{ flex: "0 0 auto" }}>
+        <h3>Tipps Gruppenphase</h3>
         <div ref={groupRef}>
           {Object.keys(grouped)
             .sort()
-            .map((group) => {
-            const tableData = calculateTable(grouped[group], tips);
-
-            return (
-              <div
-                key={group}
-                style={{
-                  display: "flex",
-                  gap: "40px",
-                  alignItems: "flex-start",
-                  marginBottom: "40px"
-                }}
-              >
-                {/* 🔵 LINKS → Spiele */}
-                <div style= {{ width: "250px" }}>
-                  <h3>{group}</h3>
-
-                  {!phase?.is_submitted && (
-                    <button onClick={() => deleteGroupTips(group)}>
-                      Zurücksetzen
-                    </button>
-                  )}
-
-                  {grouped[group].map((m) => {
-                    const tip = tips[m.id];
-
-                    return (
-                      <div key={m.id} style={{ marginBottom: "10px" }}>
-                        {m.team_a} vs {m.team_b}
-
-                        {tip ? (
-                          <div>{tip.goals_a} : {tip.goals_b}</div>
-                        ) : (
-                          !phase?.is_submitted && (
-                            <TipInput
-                              isKO={false}
-                              onSave={(a, b, w) => saveTip(m.id, a, b, w)}
-                            />
-                          )
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* 🟢 RECHTS → Tabelle */}
-                <div style={{ marginTop: "60px"}}>
-                  <table border="1">
-                    <thead>
-                      <tr>
-                        <th>Platz</th>
-                        <th>Team</th>
-                        <th>Pkt</th>
-                        <th>Tore</th>
-                        <th>GT</th>
-                        <th>Diff</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {tableData.map((row, index) => (
-                        <tr key={row.team}>
-                          <td>{index + 1}</td>
-                          <td>{row.team}</td>
-                          <td>{row.points}</td>
-                          <td>{row.goals}</td>
-                          <td>{row.conceded}</td>
-                          <td>{row.diff}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-
-        {/* 🔴 RECHTS: KO */}
-        <div>
-          <h2>KO-Phase</h2>
-          
-          <div style={{ minWidth: "1200px" }}>
-
-            {/* 🔥 HEADER FIX OBEN */}
-            <div style={{
-              display: "flex",
-              marginBottom: "20px"
-            }}>
-              {Object.keys(koByRound).map((round, i) => (
-                <div
-                  key={round}
-                  style={{
-                    width: "220px",
-                    textAlign: "center",
-                    fontWeight: "bold"
-                  }}
-                >
-                  {roundNames[round]}
-
-                  {!phase?.is_submitted && (
-                    <div>
-                      <button onClick={() => deleteKORound(Number(round))}>
-                        Zurücksetzen
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* 🔽 BAUM */}
-            <div
-              style={{
-                position: "relative",
-                height: `${treeHeight}px`
-              }}
-            >
-
-            {Object.keys(koByRound)
-              .sort((a, b) => Number(a) - Number(b))
-              .map((round, roundIndex) => (
-                <div key={round} style={{ position: "relative" }}>                            
-
-                {koByRound[round].map((m, matchIndex) => {
-                  const tip = tips[m.id];
-
-
-                  const spacing = 100 * Math.pow(2, roundIndex); // 🔥 Abstand wächst je Runde
-
-                  const currentTop = getTopPosition(roundIndex, matchIndex);
-                  const nextTop = getTopPosition(roundIndex + 1, Math.floor(matchIndex / 2));
-
-                  const matchDef =
-                    roundIndex === 0 && KO_STRUCTURE.round16[matchIndex]
-                      ? KO_STRUCTURE.round16[matchIndex]
-                      : null;
-
-                  let teamA;
-                  let teamB;
-
-                  if (roundIndex === 0) {
-                    const matchDef = KO_STRUCTURE.round16[matchIndex];
-
-                    teamA = resolveSlot(matchDef[0], context);
-                    teamB = resolveSlot(matchDef[1], context);
-                  } else {
-                    teamA = getTeamFromPrevious(roundIndex, matchIndex, "A");
-                    teamB = getTeamFromPrevious(roundIndex, matchIndex, "B");
-                  }
-
-                  return (
-                    <div
-                      key={m.id}
-                      style={{
-                        position: "absolute",
-                        top: `${getTopPosition(roundIndex, matchIndex)}px`,
-                        left: `${roundIndex * 220}px`
-                      }}
-                    >
-                      {/* 🔲 MATCH BOX */}
-                      <div
-                        style={{
-                          border: "1px solid black",
-                          padding: "10px",
-                          width: "170px",
-                          height: "100px",
-                          background: "#fff",
-                          position: "relative",
-                          display: "flex",
-                          flexDirection: "column",
-                          justifyContent: "space-between",
-                          boxSizing: "border-box"
-                        }}
-                      >
-
-                        <div>{teamA}</div>
-                        <div>{teamB}</div>
-
-                        {tip ? (
-                          <div>
-                            {tip.goals_a !== null && tip.goals_b !== null
-                              ? `${tip.goals_a} : ${tip.goals_b}`
-                              : ""}
-                            {tip.winner && ` (${Number(tip.winner) === 1 ? teamA : teamB})`}
-                          </div>
-                        ) : !phase?.is_submitted ? (
-                          roundIndex === 0 ? (
-                            <select
-                              onChange={(e) =>
-                                saveTip(m.id, null, null, e.target.value)
-                              }
-                            >
-                              <option value="">-</option>
-                              <option value="1">{teamA}</option>
-                              <option value="2">{teamB}</option>
-                            </select>
-                          ) : teamA !== "?" && teamB !== "?" ? (
-                            <TipInput
-                              isKO={true}
-                              teamA={teamA}
-                              teamB={teamB}
-                              onSave={(a, b, w) => saveTip(m.id, a, b, w)}
-                            />
-                          ) : null
-                        ) : null}
-                      </div>    
-
-                      {roundIndex < Object.keys(koByRound).length - 1 && (
-                        <>
-                          {/* Linie von JEDEM Spiel nach rechts */}
-                          <div
-                            style={{
-                              position: "absolute",
-                              top: "50%",
-                              right: "-25px",
-                              width: "25px",
-                              height: "2px",
-                              background: "black"
-                            }}
-                          />
-
-                          {/* NUR für jedes obere Spiel (0,2,4...) */}
-                          {matchIndex % 2 === 0 && (
-                            <>
-                              {/* Abstand zwischen den zwei Spielen */}
-                              <div
-                                style={{
-                                  position: "absolute",
-                                  top: "50%",
-                                  right: "-25px",
-                                  width: "2px",
-                                  height: `${baseSpacing * Math.pow(2, roundIndex)}px`,
-                                  background: "black"
-                                }}
-                              />
-
-                              {/* Verbindung zur nächsten Runde (mittig!) */}
-                              <div
-                                style={{
-                                  position: "absolute",
-                                  top: `calc(${nextTop - currentTop}px + 50%)`,
-                                  right: "-50px",
-                                  width: "25px",
-                                  height: "2px",
-                                  background: "black"
-                                }}
-                              />
-                            </>
-                          )}
-                        </>
-                      )}
-                                            
-                    </div>
-                  );
-                })}
-              </div>
+            .map((groupName) => (
+              <GroupTable
+                key={groupName}
+                groupName={groupName}
+                matches={grouped[groupName]}
+                tips={tips}
+                tableData={calculateTable(grouped[groupName], tips)}
+                isSubmitted={phase?.is_submitted}
+                onDeleteTips={deleteGroupTips}
+                onSaveTip={saveTip}
+              />
             ))}
-            </div>
-          </div>
-                 
         </div>
+        <BestThirdsTable teams={bestThirds} />
 
       </div>
-    </div>
-  );
-}
+
+      {/* 🔴 RECHTE SPALTE: KO-BAUM */}
+      <div style={{ flex: "1" }}>
+        <h3>KO-Phase</h3>
+        <KOBracket 
+          koByRound={koByRound}
+          tips={tips}
+          phase={phase}
+          roundNames={roundNames}
+          treeHeight={treeHeight}
+          getTopPosition={getTopPosition}
+          getTeamFromPrevious={getTeamFromPreviousLocal}
+          resolveSlot={resolveSlotLocal}
+          context={context}
+          KO_STRUCTURE={KO_STRUCTURE}
+          saveTip={saveTip}
+          deleteKORound={deleteKORound}
+          baseSpacing={currentBaseSpacing}
+        />
+      </div>
+
+    </div> {/* Ende des Flex-Containers */}
+  </div>
+);
 
 //////////////////////////////////////////
 // 9️⃣ TIP INPUT
@@ -693,9 +426,9 @@ function TipInput({ onSave, isKO, teamA, teamB }) {
 
       <button onClick={() => onSave(a, b, w)}>Speichern</button>
     </div>
-  );
+    );
+  }
 }
-
 //////////////////////////////////////////
 // 🔟 APP (LOGIN + NAVI)
 //////////////////////////////////////////
