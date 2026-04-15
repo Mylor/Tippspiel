@@ -27,7 +27,7 @@ const ROUND_NAMES = {
   1: "Sechzehntelfinale", 2: "Achtelfinale", 3: "Viertelfinale", 4: "Halbfinale", 5: "Finale" 
 };
 
-function TippsPage({ player, phaseId }) {
+function TippsPage({ player, phaseId, context }) {
   // --- STATE ---
   const [matches, setMatches] = useState([]);
   const [tips, setTips] = useState({});
@@ -118,10 +118,17 @@ function TippsPage({ player, phaseId }) {
     teams: calculateTable(grouped[groupName], tips)
   }));
 
+  // 1. Diese Variable behält alle 12 für die Anzeige in der Tabelle
   const bestThirds = getBestThirds(allGroupsArray);
-  const groupResults = {};
-  allGroupsArray.forEach(g => { groupResults[g.id] = g.teams.map(t => t.team); });
 
+  // 2. Erstelle eine NEUE Variable für die KO-Logik (nur die Top 8)
+  const top8Thirds = bestThirds.slice(0, 8);
+
+  const groupResults = {};
+  allGroupsArray.forEach(g => { 
+    groupResults[g.id] = g.teams.map(t => t.team); 
+  });
+  
   const koMatches = matches
     .filter(m => m.stage === "ko")
     .sort((a,b) => a.stage_order - b.stage_order || a.ko_order - b.ko_order);
@@ -136,7 +143,7 @@ function TippsPage({ player, phaseId }) {
   const firstRoundKey = Object.keys(koByRound).sort((a, b) => a - b)[0];
   const totalMatchesCount = koByRound[firstRoundKey]?.length || 1;
   const currentBaseSpacing = treeHeight / totalMatchesCount;
-  const tournamentContext = { groups: groupResults, thirdPlaces: bestThirds, tips };
+  const tournamentContext = { groups: groupResults, thirdPlaces: top8Thirds, tips };
 
   // --- RENDER ---
   return (
@@ -169,7 +176,7 @@ function TippsPage({ player, phaseId }) {
           roundNames={ROUND_NAMES}
           phase={phase}
           getTopPosition={(roundIdx, matchIdx) => getTopPosition(roundIdx, matchIdx, treeHeight, currentBaseSpacing)}
-          getTeamFromPrevious={(roundIdx, matchIdx, side) => getTeamFromPrevious(roundIdx, matchIdx, side, koByRound, tips)}
+          getTeamFromPrevious={(roundIdx, matchIdx, side) => getTeamFromPrevious(roundIdx, matchIdx, side, koByRound, tips, tournamentContext)}
           resolveSlot={(slot) => resolveSlot(slot, tournamentContext)}
           baseSpacing={currentBaseSpacing}
           saveTip={saveTip}

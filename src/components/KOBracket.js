@@ -38,7 +38,7 @@ const KOBracket = ({
       </div>
 
       {/* 🔽 BAUM */}
-      <div style={{ position: "relative", height: `${treeHeight}px` }}>
+      <div style={{ position: "relative", height: `${treeHeight/2}px` }}>
         {Object.keys(koByRound)
           .sort((a, b) => Number(a) - Number(b))
           .map((round, roundIndex) => (
@@ -54,8 +54,8 @@ const KOBracket = ({
                   teamA = resolveSlot(matchDef[0], context);
                   teamB = resolveSlot(matchDef[1], context);
                 } else {
-                  teamA = getTeamFromPrevious(roundIndex, matchIndex, "A");
-                  teamB = getTeamFromPrevious(roundIndex, matchIndex, "B");
+                  teamA = getTeamFromPrevious(roundIndex, matchIndex, "A", koByRound, tips, context);
+                  teamB = getTeamFromPrevious(roundIndex, matchIndex, "B", koByRound, tips, context);
                 }
 
                 return (
@@ -76,22 +76,38 @@ const KOBracket = ({
                       <div>{teamA}</div>
                       <div>{teamB}</div>
 
-                      {tip ? (
-                        <div>
-                          {tip.goals_a !== null && `${tip.goals_a} : ${tip.goals_b}`}
-                          {tip.winner && ` (${Number(tip.winner) === 1 ? teamA : teamB})`}
+                      {/* Prüfen, ob die Phase noch offen ist */}
+                      {!phase?.is_submitted ? (
+                        <div style={{ marginTop: '5px' }}>
+                          {/* Wir zeigen das Dropdown immer an, wenn beide Teams bekannt sind */}
+                          {(teamA !== "?" && teamB !== "?") ? (
+                            <select 
+                              value={tip?.winner || ""} 
+                              onChange={(e) => saveTip(m.id, null, null, e.target.value)}
+                              style={{ padding: '2px', borderRadius: '4px' }}
+                            >
+                              <option value="">Sieger wählen...</option>
+                              <option value="1">{teamA}</option>
+                              <option value="2">{teamB}</option>
+                            </select>
+                          ) : (
+                            <span style={{ fontSize: '0.8em', color: '#888' }}>Warten auf Teams...</span>
+                          )}
+
+                          {/* Anzeige des aktuellen Tipps, falls vorhanden */}
+                          {tip && tip.winner && (
+                            <div style={{ fontWeight: 'bold', color: '#2ecc71', fontSize: '0.9em', marginTop: '3px' }}>
+                              Gewählt: {Number(tip.winner) === 1 ? teamA : teamB}
+                            </div>
+                          )}
                         </div>
-                      ) : !phase?.is_submitted ? (
-                        roundIndex === 0 ? (
-                          <select onChange={(e) => saveTip(m.id, null, null, e.target.value)}>
-                            <option value="">-</option>
-                            <option value="1">{teamA}</option>
-                            <option value="2">{teamB}</option>
-                          </select>
-                        ) : (teamA !== "?" && teamB !== "?") ? (
-                          <TipInput isKO={true} teamA={teamA} teamB={teamB} onSave={(a, b, w) => saveTip(m.id, a, b, w)} />
-                        ) : null
-                      ) : null}
+                      ) : (
+                        /* Wenn Phase abgeschlossen: Nur Ergebnis anzeigen */
+                        <div>
+                          {tip?.goals_a !== null && `${tip.goals_a} : ${tip.goals_b}`}
+                          {tip?.winner && ` (${Number(tip.winner) === 1 ? teamA : teamB})`}
+                        </div>
+                      )}
                     </div>
 
                     {/* LINIEN LOGIK */}

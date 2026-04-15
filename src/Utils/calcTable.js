@@ -39,5 +39,5 @@ export function getBestThirds(allGroups, adminOverrides = {}) {
     const rankA = adminOverrides[a.name] || 99;
     const rankB = adminOverrides[b.name] || 99;
     return rankA - rankB;
-  }).slice(0, 8); // Gib nur die Top 8 zurück
+  }).slice(0, 12); // Gib nur die Top 8 zurück
 };
