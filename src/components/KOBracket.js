@@ -118,7 +118,7 @@ const KOBracket = ({
                 return (
                   <div key={m.id} style={{ position: "absolute", top: `${currentTop}px`, left: `${roundIndex * 300}px`, height: `${BOX_HEIGHT}px` }}>
                     {/* Überschrift über dem Match */}
-                    <div style={{ fontSize: "0.65rem", fontWeight: "800", color: "#cbd5e0", textTransform: "uppercase", marginBottom: "4px", letterSpacing: "0.05em" }}>
+                    <div style={{ fontSize: "0.65rem", fontWeight: "1000", color: "#878b8e", textTransform: "uppercase", marginBottom: "4px", letterSpacing: "0.05em" }}>
                       {safeRoundNames[round]} {matchIndex + 1}
                     </div>
 

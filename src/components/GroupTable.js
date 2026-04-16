@@ -106,7 +106,7 @@ const GroupTable = ({
           backgroundColor: "#fff"
         }}>
           <thead>
-            <tr style={{ backgroundColor: "#1a73e8", color: "#ffffff", textAlign: "left" }}>
+            <tr style={{ backgroundColor: "#2d80ed", color: "#ffffff", textAlign: "left" }}>
               <th style={thStyle}>#</th>
               <th style={thStyle}>Team</th>
               <th style={thCenterStyle}>Pkt</th>
