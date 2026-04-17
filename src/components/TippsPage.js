@@ -168,13 +168,33 @@ function TippsPage({ player, phaseId, context }) {
   // Layout Berechnung
   const firstRoundKey = Object.keys(koByRound).sort((a, b) => a - b)[0];
   const totalMatchesCount = koByRound[firstRoundKey]?.length || 1;
-  const currentBaseSpacing = treeHeight / totalMatchesCount;
+
+  // Hier kannst du für jede Phase (ID 1-5) den Basis-Abstand definieren
+  const PHASE_SPACING = {
+    1: 300, // Phase 1 (Prognose)
+    2: 200, // Phase 2 (16tel-Finale Start)
+    3: 100, // Phase 3 (Achtelfinale Start) -> Wert vergrößert, da Spalte 1 jetzt 8tel ist
+    4: 50, // Phase 4 (Viertelfinale Start)
+    5: 25  // Phase 5 (Halbfinale/Finale)
+  };
+
+  // Aktuellen Wert basierend auf der Phase holen (Fallback auf 70)
+  const currentSpacing = PHASE_SPACING[phase?.id] || 70;
+
+  const startIdxOfPhase = phase?.id <= 2 ? 0 : phase?.id - 2;
+
+  // Offset berechnen, damit die erste Box immer oben bei 0px steht
+  // WICHTIG: Hier nutzen wir den aktuellen Spacing der Phase
+  const topOffset = getTopPosition(startIdxOfPhase, 0, treeHeight, currentSpacing);
+
   const tournamentContext = { groups: groupResults, thirdPlaces: top8Thirds, tips };
 
   // --- RENDER ---
   return (
-    <div style={{ display: "flex", gap: "50px", padding: "20px" }}>
-      {/* Linke Seite: Gruppen */}
+  <div style={{ display: "flex", gap: phase?.id === 1 ? "50px" : "0px", padding: "20px" }}>
+    
+    {/* Linke Seite: Gruppen - NUR anzeigen in Phase 1 */}
+    {phase?.id === 1 && (
       <div ref={groupRef} style={{ flex: "0 0 auto" }}>
         <h3>Gruppenphase</h3>
         {Object.keys(grouped).sort().map(name => (
@@ -191,27 +211,31 @@ function TippsPage({ player, phaseId, context }) {
         ))}
         <BestThirdsTable teams={bestThirds} />
       </div>
+    )}
 
-      {/* Rechte Seite: KO-Baum */}
-      <div style={{ flex: "1" }}>
-        <h3>KO-Phase</h3>
-        <KOBracket 
-          koByRound={koByRound} 
-          tips={tips} 
-          treeHeight={treeHeight}
-          roundNames={ROUND_NAMES}
-          phase={phase}
-          getTopPosition={(roundIdx, matchIdx) => getTopPosition(roundIdx, matchIdx, treeHeight, currentBaseSpacing)}
-          getTeamFromPrevious={(roundIdx, matchIdx, side) => getTeamFromPrevious(roundIdx, matchIdx, side, koByRound, tips, tournamentContext)}
-          resolveSlot={(slot) => resolveSlot(slot, tournamentContext)}
-          baseSpacing={currentBaseSpacing}
-          saveTip={saveTip}
-          deleteKORound={deleteKORound}
-          KO_STRUCTURE={KO_STRUCTURE}
-        />
-      </div>
+    {/* Rechte Seite: KO-Baum - Immer da, nimmt ab Phase 2 den vollen Platz ein */}
+    <div style={{ flex: "1" }}>
+      <h3 style={{ marginLeft: phase?.id === 1 ? "0" : "20px" }}>KO-Phase</h3>
+      <KOBracket 
+        koByRound={koByRound} 
+        tips={tips} 
+        treeHeight={treeHeight}
+        roundNames={ROUND_NAMES}
+        phase={phase}
+        getTopPosition={(roundIdx, matchIdx) => {
+          const absoluteTop = getTopPosition(roundIdx, matchIdx, treeHeight, currentSpacing);
+          return absoluteTop - topOffset; 
+        }}
+        getTeamFromPrevious={(roundIdx, matchIdx, side) => getTeamFromPrevious(roundIdx, matchIdx, side, koByRound, tips, tournamentContext)}
+        resolveSlot={(slot) => resolveSlot(slot, tournamentContext)}
+        baseSpacing={currentSpacing}
+        saveTip={saveTip}
+        deleteKORound={deleteKORound}
+        KO_STRUCTURE={KO_STRUCTURE}
+      />
     </div>
-  );
+  </div>
+);
 }
 
 export default TippsPage;
