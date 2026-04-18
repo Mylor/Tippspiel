@@ -9,12 +9,17 @@ const TipInput = ({ teamA, teamB, onSave, isKO }) => {
     setGoalsA(a);
     setGoalsB(b);
     setWinner(w);
+    
+    // Wir entfernen das automatische onSave hier, 
+    // damit nicht bei jeder Ziffer gespeichert wird.
+  };
 
-    // Nur speichern, wenn beide Tore Zahlen sind
+  // Neue Funktion für das Speichern beim Verlassen des Feldes oder Auswahl des Siegers
+  const handleBlurOrSelect = (a, b, w) => {
     if (a !== "" && b !== "") {
-      // Wenn KO-Phase und Unentschieden, muss ein Winner feststehen
-      if (isKO && a === b && !w) {
-        return; // Warte auf Winner-Auswahl
+      // Bei Unentschieden im KO-System MUSS ein Winner gewählt sein
+      if (isKO && a === b) {
+        if (!w) return; // Noch nicht speichern, User muss erst den Dropdown bedienen
       }
       onSave(Number(a), Number(b), w);
     }
@@ -25,33 +30,34 @@ const TipInput = ({ teamA, teamB, onSave, isKO }) => {
       <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
         <input
           type="number"
-          min="0"
           value={goalsA}
-          placeholder="0"
-          style={{ width: "35px" }}
           onChange={(e) => handleChange(e.target.value, goalsB, winner)}
+          onBlur={() => handleBlurOrSelect(goalsA, goalsB, winner)} // Speichern beim Verlassen
+          style={{ width: "35px" }}
         />
         <span>:</span>
         <input
           type="number"
-          min="0"
           value={goalsB}
-          placeholder="0"
-          style={{ width: "35px" }}
           onChange={(e) => handleChange(goalsA, e.target.value, winner)}
+          onBlur={() => handleBlurOrSelect(goalsA, goalsB, winner)} // Speichern beim Verlassen
+          style={{ width: "35px" }}
         />
       </div>
 
-      {/* Sonderlogik für KO-Phase bei Unentschieden */}
       {isKO && goalsA !== "" && goalsA === goalsB && (
         <select 
           value={winner} 
-          onChange={(e) => handleChange(goalsA, goalsB, e.target.value)}
+          onChange={(e) => {
+            const newWinner = e.target.value;
+            setWinner(newWinner);
+            handleBlurOrSelect(goalsA, goalsB, newWinner); // Sofort speichern bei Auswahl
+          }}
           style={{ fontSize: "10px", width: "100%" }}
         >
           <option value="">Wer kommt weiter?</option>
-          <option value="1">{teamA}</option>
-          <option value="2">{teamB}</option>
+          <option value="1">Team A</option>
+          <option value="2">Team B</option>
         </select>
       )}
     </div>

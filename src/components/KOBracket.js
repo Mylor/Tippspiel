@@ -78,10 +78,20 @@ const KOBracket = ({
               
               {!phase?.is_submitted && (
                 <button 
-                  onClick={() => deleteKORound(Number(round))} 
+                  onClick={() => {
+                    // Hier im onClick-Handler darfst du loggen soviel du willst! 
+                    deleteKORound(Number(round), phase?.id);
+                  }}
                   style={{ 
-                    padding: "4px 8px", fontSize: "0.75rem", backgroundColor: "#fff", 
-                    border: "1px solid #ccc", borderRadius: "4px", cursor: "pointer", color: "#666" 
+                    padding: "4px 8px", 
+                    fontSize: "0.75rem", 
+                    backgroundColor: "#fff", 
+                    border: "1px solid #ccc", 
+                    borderRadius: "4px", 
+                    cursor: "pointer", 
+                    color: "#666",
+                    position: "relative",
+                    zIndex: 10
                   }}
                 >
                   Reset
@@ -122,14 +132,22 @@ const KOBracket = ({
 
                   const getWinningSide = () => {
                     if (!tip) return null;
+
+                    // 1. Prüfe, ob Tore eingegeben wurden
                     const gA = (tip.goals_a !== undefined && tip.goals_a !== null && tip.goals_a !== "") ? Number(tip.goals_a) : null;
                     const gB = (tip.goals_b !== undefined && tip.goals_b !== null && tip.goals_b !== "") ? Number(tip.goals_b) : null;
+
+                    // 2. Wenn Tore da sind, entscheide nach Toren
                     if (gA !== null && gB !== null) {
                       if (gA > gB) return "1";
                       if (gB > gA) return "2";
-                      return tip.winner || null;
+                      // Bei Unentschieden: Nimm den manuell gewählten Sieger aus dem Dropdown
+                      return tip.winner ? String(tip.winner) : null;
                     }
-                    return tip.winner || null;
+
+                    // 3. WICHTIG: Wenn KEINE Tore da sind (dein "fake Gewinner" / Phase 1), 
+                    // nimm trotzdem den gewählten Winner aus dem Dropdown
+                    return tip.winner ? String(tip.winner) : null;
                   };
 
                   const winningSide = getWinningSide();

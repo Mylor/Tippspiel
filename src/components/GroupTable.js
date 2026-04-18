@@ -45,56 +45,60 @@ const GroupTable = ({
           )}
         </div>
 
-        {matches.map((m) => {
-          const tip = tips[m.id];
-          return (
-            <div key={m.id} style={{ 
-              marginBottom: "12px", 
-              padding: "10px", 
-              backgroundColor: "#f8f9fa", 
-              borderRadius: "8px",
-              fontSize: "0.85em",
-              border: "1px solid #edf2f7",
-              // Fix: Breite erhöhen, damit alles in eine Zeile passt
-              width: "360px" 
-            }}>
-              <div style={{ 
-                display: "flex", 
-                alignItems: "center", 
-                justifyContent: "space-between", // Verteilt Teams und Ergebnis
-                gap: "10px" 
-              }}>
-                {/* Team A */}
-                <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1, justifyContent: "flex-end" }}>
-                  <span style={{ fontWeight: "600", textAlign: "right" }}>{m.team_a}</span>
-                  <FlagIcon teamName={m.team_a} />
-                </div>
+        {/* FIX: Hier wird das Array kopiert und nach match_order sortiert */}
+        {[...matches]
+          .sort((a, b) => (a.match_order || 0) - (b.match_order || 0))
+          .map((m) => {
+            const tip = tips[m.id];
+            return (
+              <div key={m.id} style={{ 
+                marginBottom: "12px", 
+                padding: "10px", 
+                backgroundColor: "#f8f9fa", 
+                borderRadius: "8px",
+                fontSize: "0.85em",
+                border: "1px solid #edf2f7",
+                width: "360px",
+                position: "relative" 
+              }}>                  
 
-                {/* Ergebnis / Input */}
-                <div style={{ minWidth: "60px", textAlign: "center" }}>
-                  {tip ? (
-                    <div style={{ color: "#1a73e8", fontWeight: "bold", fontSize: "1.1em" }}>
-                      {tip.goals_a} : {tip.goals_b}
-                    </div>
-                  ) : (
-                    !isSubmitted && (
-                      <TipInput
-                        isKO={false}
-                        onSave={(a, b, w) => onSaveTip(m.id, a, b, w)}
-                      />
-                    )
-                  )}
-                </div>
+                <div style={{ 
+                  display: "flex", 
+                  alignItems: "center", 
+                  justifyContent: "space-between", // Verteilt Teams und Ergebnis
+                  gap: "10px" 
+                }}>
+                  {/* Team A */}
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1, justifyContent: "flex-end" }}>
+                    <span style={{ fontWeight: "600", textAlign: "right" }}>{m.team_a}</span>
+                    <FlagIcon teamName={m.team_a} />
+                  </div>
 
-                {/* Team B */}
-                <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1 }}>
-                  <FlagIcon teamName={m.team_b} />
-                  <span style={{ fontWeight: "600" }}>{m.team_b}</span>
+                  {/* Ergebnis / Input */}
+                  <div style={{ minWidth: "60px", textAlign: "center" }}>
+                    {tip ? (
+                      <div style={{ color: "#1a73e8", fontWeight: "bold", fontSize: "1.1em" }}>
+                        {tip.goals_a} : {tip.goals_b}
+                      </div>
+                    ) : (
+                      !isSubmitted && (
+                        <TipInput
+                          isKO={false}
+                          onSave={(a, b, w) => onSaveTip(m.id, a, b, w)}
+                        />
+                      )
+                    )}
+                  </div>
+
+                  {/* Team B */}
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1 }}>
+                    <FlagIcon teamName={m.team_b} />
+                    <span style={{ fontWeight: "600" }}>{m.team_b}</span>
+                  </div>
                 </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
       </div>
 
       {/* 🟢 RECHTS → Tabelle */}

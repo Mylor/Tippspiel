@@ -76,10 +76,17 @@ function TippsPage({ player, phaseId, context }) {
   // --- SCHREIB-AKTIONEN ---
   async function saveTip(matchId, goalsA, goalsB, winner) {
     if (phase?.is_submitted) return;
+
     const gA = goalsA !== null ? Number(goalsA) : null;
     const gB = goalsB !== null ? Number(goalsB) : null;
-    const match = matches.find((m) => m.id === matchId);
-    const finalWinner = (match?.stage === "ko" && gA === gB) ? winner : null;
+    
+    // Berechne den automatischen Gewinner für die Weiterleitung
+    let calculatedWinner = winner; 
+    if (gA !== null && gB !== null) {
+      if (gA > gB) calculatedWinner = "1";
+      else if (gB > gA) calculatedWinner = "2";
+      // bei gA === gB bleibt es beim übergebenen 'winner' aus dem Dropdown
+    }
 
     await supabase.from("tip").upsert([
       {
@@ -88,9 +95,10 @@ function TippsPage({ player, phaseId, context }) {
         phase_id: phaseId,
         goals_a: gA,
         goals_b: gB,
-        winner: finalWinner,
+        winner: calculatedWinner, // Hier den berechneten Winner speichern
       },
     ]);
+    
     fetchTips();
   }
 
@@ -117,19 +125,31 @@ function TippsPage({ player, phaseId, context }) {
     fetchTips();
   }
   
-  async function deleteKORound(stageOrder) {
-    // Finde alle Spiele, die die aktuelle stageOrder ODER HÖHER haben
-    const ids = matches
-      .filter((m) => m.stage === "ko" && m.stage_order >= stageOrder)
+  async function deleteKORound(stageOrder, phaseId) {
+    // 1. Alle Match-IDs finden, die zur gewählten Runde oder später gehören
+    const idsToDelete = matches
+      .filter((m) => {
+        return m.stage === "ko" && Number(m.stage_order) >= Number(stageOrder);
+      })
       .map((m) => m.id);
 
-    await supabase
-      .from("tip")
-      .delete()
-      .in("match_id", ids)
-      .eq("player_id", player.id);
+    if (idsToDelete.length === 0) return;
 
-    fetchTips();
+    try {
+      // 2. Lösche nur die Tipps des Spielers in der AKTUELLEN Phase für diese Spiele
+      const { error } = await supabase
+        .from("tip")
+        .delete()
+        .eq("player_id", player.id)
+        .eq("phase_id", phaseId) // Das stellt sicher, dass Phase 2 Prognosen gelöscht werden
+        .in("match_id", idsToDelete);
+
+      if (error) throw error;
+      
+      fetchTips(); // UI aktualisieren
+    } catch (err) {
+      console.error("Fehler beim Reset:", err.message);
+    }
   }
 
   // --- TURNIER-LOGIK VORBEREITUNG ---

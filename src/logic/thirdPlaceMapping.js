@@ -538,8 +538,6 @@ export function getThirdPlaceForSlot(slot, bestThirds) {
     .sort()
     .join("");
 
-  console.log("Gesuchte Kombi:", currentCombo);
-
   // 2. Welche Option-Nummer (1-495) ist das?
   const comboIndex = ALL_COMBOS.indexOf(currentCombo);
   if (comboIndex === -1) return "Combo Not Found";
