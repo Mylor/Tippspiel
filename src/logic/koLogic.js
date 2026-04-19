@@ -65,39 +65,35 @@ export function getWinner(matchId, tips) {
   return null;
 }
 
-/**
- * Findet das Team aus der vorherigen Runde
- */
-/**
- * Findet das Team aus der vorherigen Runde ODER aus dem aktuellen Match-Objekt (Phase 2+)
- */
 export function getTeamFromPrevious(roundIndex, matchIndex, side, koByRound, tips, context) {
-  // 1. PHASE-CHECK: Wo fängt diese Phase an?
-  // Phase 1 (Gruppen) -> Start bei roundIndex 0 (16tel)
-  // Phase 2 (16tel)   -> Start bei roundIndex 0 (aber Teams stehen fest in m.team_a)
-  // Phase 3 (8tel)    -> Start bei roundIndex 1
+  // 1. PHASE-CHECK: Wir holen die phaseId direkt aus dem context
+  // WICHTIG: Stelle sicher, dass du in TippsPage.js bei context auch phaseId: phase.id übergibst!
   const currentPhaseId = context?.phaseId || 1;
   const startRoundOfPhase = currentPhaseId === 1 ? 0 : currentPhaseId - 2;
 
-  // 2. BASIS-FALL FÜR PHASE 2, 3, 4:
-  // Wenn wir in der Start-Runde der Phase sind, nehmen wir die REALEN Teams aus der DB
+  // 2. BASIS-FALL FÜR REALE SPIELE (Phase 2, 3, 4, 5):
+  // Wenn wir uns in der ersten sichtbaren Runde der Phase befinden, 
+  // kommen die Teams aus der Datenbank (m.team_a / m.team_b)
   if (currentPhaseId > 1 && roundIndex === startRoundOfPhase) {
-    const currentRoundMatches = koByRound[Object.keys(koByRound).sort((a,b)=>a-b)[roundIndex]];
+    const rounds = Object.keys(koByRound).map(Number).sort((a, b) => a - b);
+    const currentRoundKey = rounds[roundIndex];
+    const currentRoundMatches = koByRound[currentRoundKey];
     const currentMatch = currentRoundMatches?.[matchIndex];
+    
     if (currentMatch) {
-      return side === "A" ? currentMatch.team_a : currentMatch.team_b;
+      const team = side === "A" ? currentMatch.team_a : currentMatch.team_b;
+      return team || "?";
     }
   }
 
-  // --- AB HIER FOLGT DEINE BESTEHENDE REKURSIONS-LOGIK ---
+  // 3. REKURSIONS-LOGIK FÜR PROGNOSEN ("Fake-Spiele")
   const rounds = Object.keys(koByRound).map(Number).sort((a, b) => a - b);
   const prevRoundKey = rounds[roundIndex - 1];
   const prevRound = koByRound[prevRoundKey];
 
-  // Wenn es keine Vorrunde gibt (und wir nicht im Basis-Fall oben gelandet sind), ist es Phase 1 / Round 0
   if (!prevRound) return "?";
 
-  // Source Match Index Logik (dein Fix für Finale/Platz 3)
+  // Wer war das Quell-Spiel? (Logik für Finale/Platz 3 inklusive)
   let sourceMatchIndex;
   if (roundIndex === 4) {
     sourceMatchIndex = side === "A" ? 0 : 1;
@@ -109,22 +105,31 @@ export function getTeamFromPrevious(roundIndex, matchIndex, side, koByRound, tip
   if (!sourceMatch) return "?";
 
   const tip = tips[sourceMatch.id];
-  const winner = tip ? Number(tip.winner) : null;
+  
+  // WICHTIG: Hier berechnen wir den Winner basierend auf Toren ODER manuellem Winner
+  const getWinnerFromTip = (t) => {
+    if (!t) return null;
+    const gA = (t.goals_a !== null && t.goals_a !== "") ? Number(t.goals_a) : null;
+    const gB = (t.goals_b !== null && t.goals_b !== "") ? Number(t.goals_b) : null;
+    if (gA !== null && gB !== null) {
+      if (gA > gB) return 1;
+      if (gB > gA) return 2;
+      return t.winner ? Number(t.winner) : null;
+    }
+    return t.winner ? Number(t.winner) : null;
+  };
 
+  const winner = getWinnerFromTip(tip);
   if (!winner) return "?";
 
-  // Gewinner/Verlierer Tausch (dein Fix für Platz 3)
+  // Gewinner/Verlierer Tausch für Spiel um Platz 3
   const isThirdPlaceMatch = (roundIndex === 4 && matchIndex === 1);
-  let effectiveWinnerSide;
-  if (isThirdPlaceMatch) {
-    effectiveWinnerSide = winner === 1 ? "B" : "A";
-  } else {
-    effectiveWinnerSide = winner === 1 ? "A" : "B";
-  }
+  let effectiveWinnerSide = (isThirdPlaceMatch) 
+    ? (winner === 1 ? "B" : "A") 
+    : (winner === 1 ? "A" : "B");
 
-  // WEITERGABE
+  // 4. DER ÜBERGANG ZUR GRUPPENPHASE (NUR IN PHASE 1)
   if (roundIndex === 1 && currentPhaseId === 1) {
-    // Spezialfall NUR für Phase 1 (Übergang Gruppe -> 16tel)
     const KO_STRUCTURE = {
       round16: [
         ["E1", "1E"], ["I1", "1I"], ["F1", "C2"], ["B2", "A2"],
@@ -136,15 +141,15 @@ export function getTeamFromPrevious(roundIndex, matchIndex, side, koByRound, tip
     const pairing = KO_STRUCTURE.round16[sourceMatchIndex];
     const slotCode = effectiveWinnerSide === "A" ? pairing[0] : pairing[1];
     return resolveSlot(slotCode, context);
-  } else {
-    // Rekursion für alle anderen Fälle
-    return getTeamFromPrevious(
-      roundIndex - 1, 
-      sourceMatchIndex, 
-      effectiveWinnerSide, 
-      koByRound, 
-      tips, 
-      context
-    );
-  }
+  } 
+  
+  // 5. REKURSIVE WEITERGABE
+  return getTeamFromPrevious(
+    roundIndex - 1, 
+    sourceMatchIndex, 
+    effectiveWinnerSide, 
+    koByRound, 
+    tips, 
+    context
+  );
 }

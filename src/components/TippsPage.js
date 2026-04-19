@@ -2,17 +2,17 @@ import React, { useEffect, useState, useRef } from "react";
 import { supabase } from "../supabaseClient";
 import { getBestThirds } from "../Utils/calcTable";
 
-// Import der ausgelagerten Logik
+// --- LOGIK & UTILS ---
 import { calculateTable } from "../logic/tournamentLogic";
 import { getTopPosition, resolveSlot, getTeamFromPrevious } from "../logic/koLogic";
 
-// Import der UI-Komponenten
+// --- UI-KOMPONENTEN ---
 import GroupTable from './GroupTable';
 import KOBracket from './KOBracket';
 import BestThirdsTable from './BestThirdsTable';
 
 /**
- * KONSTANTEN
+ * KONSTANTEN & STRUKTUREN
  */
 const KO_STRUCTURE = {
   round16: [
@@ -27,7 +27,16 @@ const ROUND_NAMES = {
   1: "Sechzehntelfinale", 2: "Achtelfinale", 3: "Viertelfinale", 4: "Halbfinale", 5: "Finale" 
 };
 
+const PHASE_SPACING = {
+  1: 300, 2: 200, 3: 100, 4: 50, 5: 25
+};
+
+/**
+ * TippsPage: Hauptseite für die Tipp-Abgabe.
+ * Verwaltet den State für Spiele, Tipps und die Turnierphase.
+ */
 function TippsPage({ player, phaseId, context }) {
+  
   // --- STATE ---
   const [matches, setMatches] = useState([]);
   const [tips, setTips] = useState({});
@@ -35,18 +44,23 @@ function TippsPage({ player, phaseId, context }) {
   const [treeHeight, setTreeHeight] = useState(800);
   const groupRef = useRef(null);
 
-  // --- DATEN LADEN ---
+  // --- LIFECYCLE / EFFEKTE ---
+
+  // Initiales Laden der Daten bei Phasenwechsel
   useEffect(() => {
     fetchMatches();
     fetchTips();
     fetchPhase();
   }, [phaseId]);
 
+  // Dynamische Höhenberechnung für den KO-Baum (orientiert sich an der Gruppenliste)
   useEffect(() => {
     if (groupRef.current) {
       setTreeHeight(groupRef.current.offsetHeight);
     }
   }, [matches, tips]);
+
+  // --- DATENBANK-ABFRAGEN (FETCH) ---
 
   async function fetchMatches() {
     const { data } = await supabase.from("match").select("*");
@@ -59,6 +73,7 @@ function TippsPage({ player, phaseId, context }) {
       .select("*")
       .eq("player_id", player.id)
       .eq("phase_id", phaseId);
+    
     const map = {};
     data?.forEach((t) => (map[t.match_id] = t));
     setTips(map);
@@ -73,86 +88,81 @@ function TippsPage({ player, phaseId, context }) {
     setPhase(data);
   }
 
-  // --- SCHREIB-AKTIONEN ---
+  // --- SCHREIB-AKTIONEN (MUTATIONS) ---
+
+  /**
+   * Speichert oder aktualisiert einen Tipp in der Datenbank.
+   */
   async function saveTip(matchId, goalsA, goalsB, winner) {
     if (phase?.is_submitted) return;
 
     const gA = goalsA !== null ? Number(goalsA) : null;
     const gB = goalsB !== null ? Number(goalsB) : null;
     
-    // Berechne den automatischen Gewinner für die Weiterleitung
+    // Automatischer Gewinner-Check für die Tabellen-Weiterleitung
     let calculatedWinner = winner; 
     if (gA !== null && gB !== null) {
       if (gA > gB) calculatedWinner = "1";
       else if (gB > gA) calculatedWinner = "2";
-      // bei gA === gB bleibt es beim übergebenen 'winner' aus dem Dropdown
     }
 
-    await supabase.from("tip").upsert([
-      {
-        player_id: player.id,
-        match_id: matchId,
-        phase_id: phaseId,
-        goals_a: gA,
-        goals_b: gB,
-        winner: calculatedWinner, // Hier den berechneten Winner speichern
-      },
-    ]);
+    await supabase.from("tip").upsert([{
+      player_id: player.id,
+      match_id: matchId,
+      phase_id: phaseId,
+      goals_a: gA,
+      goals_b: gB,
+      winner: calculatedWinner,
+    }]);
     
     fetchTips();
   }
 
+  /**
+   * Löscht Tipps einer kompletten Gruppe und alle nachfolgenden KO-Tipps.
+   */
   async function deleteGroupTips(groupName) {
-    // 1. IDs der Gruppenspiele
-    const groupMatchIds = matches
-      .filter((m) => m.group_name === groupName)
-      .map((m) => m.id);
-
-    // 2. IDs ALLER KO-Phasen (da Phase 1 alles danach beeinflusst)
-    // Wir löschen Phase 2, 3, 4, 5 (oder alle stage === "ko")
-    const koMatchIds = matches
-      .filter((m) => m.stage === "ko")
-      .map((m) => m.id);
-
+    const groupMatchIds = matches.filter(m => m.group_name === groupName).map(m => m.id);
+    const koMatchIds = matches.filter(m => m.stage === "ko").map(m => m.id);
     const allToDelete = [...groupMatchIds, ...koMatchIds];
 
-    await supabase
-      .from("tip")
-      .delete()
+    await supabase.from("tip").delete()
       .in("match_id", allToDelete)
       .eq("player_id", player.id);
 
     fetchTips();
   }
   
+  /**
+   * Setzt eine spezifische KO-Runde und alle darauf folgenden Runden zurück.
+   */
   async function deleteKORound(stageOrder, phaseId) {
-    // 1. Alle Match-IDs finden, die zur gewählten Runde oder später gehören
     const idsToDelete = matches
-      .filter((m) => {
-        return m.stage === "ko" && Number(m.stage_order) >= Number(stageOrder);
-      })
-      .map((m) => m.id);
+      .filter(m => m.stage === "ko" && Number(m.stage_order) >= Number(stageOrder))
+      .map(m => m.id);
 
     if (idsToDelete.length === 0) return;
 
     try {
-      // 2. Lösche nur die Tipps des Spielers in der AKTUELLEN Phase für diese Spiele
-      const { error } = await supabase
-        .from("tip")
-        .delete()
+      const { error } = await supabase.from("tip").delete()
         .eq("player_id", player.id)
-        .eq("phase_id", phaseId) // Das stellt sicher, dass Phase 2 Prognosen gelöscht werden
+        .eq("phase_id", phaseId)
         .in("match_id", idsToDelete);
 
       if (error) throw error;
-      
-      fetchTips(); // UI aktualisieren
+      fetchTips();
     } catch (err) {
       console.error("Fehler beim Reset:", err.message);
     }
   }
 
-  // --- TURNIER-LOGIK VORBEREITUNG ---
+  // --- TURNIER-LOGIK & BERECHNUNGEN ---
+
+  if (!phase) {
+    return <div style={{ padding: "20px" }}>Lade Turnierdaten...</div>;
+  }
+
+  // 1. Gruppenspiele sortieren und Tabellen berechnen
   const grouped = {};
   matches.filter(m => m.stage === "group").forEach(m => {
     if (!grouped[m.group_name]) grouped[m.group_name] = [];
@@ -164,17 +174,16 @@ function TippsPage({ player, phaseId, context }) {
     teams: calculateTable(grouped[groupName], tips)
   }));
 
-  // 1. Diese Variable behält alle 12 für die Anzeige in der Tabelle
+  // 2. Ermittlung der besten Gruppendritten
   const bestThirds = getBestThirds(allGroupsArray);
-
-  // 2. Erstelle eine NEUE Variable für die KO-Logik (nur die Top 8)
-  const top8Thirds = bestThirds.slice(0, 8);
+  const top8Thirds = bestThirds.slice(0, 8); // Nur Top 8 kommen in KO-Runde
 
   const groupResults = {};
   allGroupsArray.forEach(g => { 
     groupResults[g.id] = g.teams.map(t => t.team); 
   });
   
+  // 3. KO-Spiele für den Baum vorbereiten
   const koMatches = matches
     .filter(m => m.stage === "ko")
     .sort((a,b) => a.stage_order - b.stage_order || a.ko_order - b.ko_order);
@@ -185,77 +194,68 @@ function TippsPage({ player, phaseId, context }) {
     koByRound[m.stage_order].push(m);
   });
 
-  // Layout Berechnung
-  const firstRoundKey = Object.keys(koByRound).sort((a, b) => a - b)[0];
-  const totalMatchesCount = koByRound[firstRoundKey]?.length || 1;
-
-  // Hier kannst du für jede Phase (ID 1-5) den Basis-Abstand definieren
-  const PHASE_SPACING = {
-    1: 300, // Phase 1 (Prognose)
-    2: 200, // Phase 2 (16tel-Finale Start)
-    3: 100, // Phase 3 (Achtelfinale Start) -> Wert vergrößert, da Spalte 1 jetzt 8tel ist
-    4: 50, // Phase 4 (Viertelfinale Start)
-    5: 25  // Phase 5 (Halbfinale/Finale)
-  };
-
-  // Aktuellen Wert basierend auf der Phase holen (Fallback auf 70)
+  // 4. Layout-Parameter für den Baum
   const currentSpacing = PHASE_SPACING[phase?.id] || 70;
-
   const startIdxOfPhase = phase?.id <= 2 ? 0 : phase?.id - 2;
-
-  // Offset berechnen, damit die erste Box immer oben bei 0px steht
-  // WICHTIG: Hier nutzen wir den aktuellen Spacing der Phase
   const topOffset = getTopPosition(startIdxOfPhase, 0, treeHeight, currentSpacing);
 
-  const tournamentContext = { groups: groupResults, thirdPlaces: top8Thirds, tips };
+  // Zentrales Context-Objekt für die KO-Ermittlung
+  const tournamentContext = { 
+    groups: groupResults, 
+    thirdPlaces: top8Thirds, 
+    tips,
+    phaseId: phase?.id
+  };
 
   // --- RENDER ---
   return (
-  <div style={{ display: "flex", gap: phase?.id === 1 ? "50px" : "0px", padding: "20px" }}>
-    
-    {/* Linke Seite: Gruppen - NUR anzeigen in Phase 1 */}
-    {phase?.id === 1 && (
-      <div ref={groupRef} style={{ flex: "0 0 auto" }}>
-        <h3>Gruppenphase</h3>
-        {Object.keys(grouped).sort().map(name => (
-          <GroupTable 
-            key={name} 
-            groupName={name} 
-            matches={grouped[name]} 
-            tips={tips} 
-            tableData={calculateTable(grouped[name], tips)} 
-            onSaveTip={saveTip} 
-            onDeleteTips={deleteGroupTips}
-            isSubmitted={phase?.is_submitted}
-          />
-        ))}
-        <BestThirdsTable teams={bestThirds} />
-      </div>
-    )}
+    <div style={{ display: "flex", gap: phase?.id === 1 ? "50px" : "0px", padding: "20px" }}>
+      
+      {/* LINKSE SEITE: Gruppenphase (Nur in Phase 1 sichtbar) */}
+      {phase?.id === 1 && (
+        <div ref={groupRef} style={{ flex: "0 0 auto" }}>
+          <h3>Gruppenphase</h3>
+          {Object.keys(grouped).sort().map(name => (
+            <GroupTable 
+              key={name} 
+              groupName={name} 
+              matches={grouped[name]} 
+              tips={tips} 
+              tableData={calculateTable(grouped[name], tips)} 
+              onSaveTip={saveTip} 
+              onDeleteTips={deleteGroupTips}
+              isSubmitted={phase?.is_submitted}
+            />
+          ))}
+          <BestThirdsTable teams={bestThirds} />
+        </div>
+      )}
 
-    {/* Rechte Seite: KO-Baum - Immer da, nimmt ab Phase 2 den vollen Platz ein */}
-    <div style={{ flex: "1" }}>
-      <h3 style={{ marginLeft: phase?.id === 1 ? "0" : "20px" }}>KO-Phase</h3>
-      <KOBracket 
-        koByRound={koByRound} 
-        tips={tips} 
-        treeHeight={treeHeight}
-        roundNames={ROUND_NAMES}
-        phase={phase}
-        getTopPosition={(roundIdx, matchIdx) => {
-          const absoluteTop = getTopPosition(roundIdx, matchIdx, treeHeight, currentSpacing);
-          return absoluteTop - topOffset; 
-        }}
-        getTeamFromPrevious={(roundIdx, matchIdx, side) => getTeamFromPrevious(roundIdx, matchIdx, side, koByRound, tips, tournamentContext)}
-        resolveSlot={(slot) => resolveSlot(slot, tournamentContext)}
-        baseSpacing={currentSpacing}
-        saveTip={saveTip}
-        deleteKORound={deleteKORound}
-        KO_STRUCTURE={KO_STRUCTURE}
-      />
+      {/* RECHTE SEITE: KO-Baum */}
+      <div style={{ flex: "1" }}>
+        <h3 style={{ marginLeft: phase?.id === 1 ? "0" : "20px" }}>KO-Phase</h3>
+        <KOBracket 
+          koByRound={koByRound} 
+          tips={tips} 
+          treeHeight={treeHeight}
+          roundNames={ROUND_NAMES}
+          phase={phase}
+          getTopPosition={(roundIdx, matchIdx) => {
+            const absoluteTop = getTopPosition(roundIdx, matchIdx, treeHeight, currentSpacing);
+            return absoluteTop - topOffset; 
+          }}
+          getTeamFromPrevious={(roundIdx, matchIdx, side) => 
+            getTeamFromPrevious(roundIdx, matchIdx, side, koByRound, tips, tournamentContext)
+          }
+          resolveSlot={(slot) => resolveSlot(slot, tournamentContext)}
+          baseSpacing={currentSpacing}
+          saveTip={saveTip}
+          deleteKORound={deleteKORound}
+          KO_STRUCTURE={KO_STRUCTURE}
+        />
+      </div>
     </div>
-  </div>
-);
+  );
 }
 
 export default TippsPage;

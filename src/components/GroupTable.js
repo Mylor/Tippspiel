@@ -2,6 +2,11 @@ import React from 'react';
 import TipInput from './TipInput'; 
 import { FlagIcon } from '../Utils/teamUtils';
 
+/**
+ * GroupTable: Stellt eine komplette Gruppe dar.
+ * Links: Liste der Spiele mit Eingabemöglichkeit (TipInput).
+ * Rechts: Die daraus resultierende Live-Tabelle.
+ */
 const GroupTable = ({ 
   groupName, 
   matches, 
@@ -12,72 +17,42 @@ const GroupTable = ({
   onSaveTip 
 }) => {
 
-  // Das Mapping für deine Teams
   return (
-    <div
-      style={{
-        display: "flex",
-        gap: "80px",
-        alignItems: "flex-start",
-        marginBottom: "60px",
-        fontFamily: "sans-serif"
-      }}
-    >
-      {/* 🔵 LINKS → Spiele */}
-      <div style={{ width: "400px" }}> {/* Breite leicht erhöht für Flaggen */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px" }}>
-          <h3 style={{ margin: 0, color: "#333" }}>Gruppe {groupName}</h3>
+    <div style={mainContainerStyle}>
+      
+      {/* --- 🔵 LINKE SEITE: SPIELLISTE --- */}
+      <div style={matchSectionStyle}>
+        
+        {/* Header der Spiel-Sektion mit Reset-Button */}
+        <div style={headerContainerStyle}>
+          <h3 style={groupTitleStyle}>Gruppe {groupName}</h3>
           {!isSubmitted && (
-            <button 
-              onClick={() => onDeleteTips(groupName)}
-              style={{
-                padding: "4px 8px",
-                fontSize: "0.75em",
-                backgroundColor: "#fff",
-                border: "1px solid #ccc",
-                borderRadius: "4px",
-                cursor: "pointer",
-                color: "#666"
-              }}
-            >
+            <button onClick={() => onDeleteTips(groupName)} style={resetButtonStyle}>
               Reset
             </button>
           )}
         </div>
 
-        {/* FIX: Hier wird das Array kopiert und nach match_order sortiert */}
+        {/* Darstellung der einzelnen Partien */}
         {[...matches]
           .sort((a, b) => (a.match_order || 0) - (b.match_order || 0))
           .map((m) => {
             const tip = tips[m.id];
+            
             return (
-              <div key={m.id} style={{ 
-                marginBottom: "12px", 
-                padding: "10px", 
-                backgroundColor: "#f8f9fa", 
-                borderRadius: "8px",
-                fontSize: "0.85em",
-                border: "1px solid #edf2f7",
-                width: "360px",
-                position: "relative" 
-              }}>                  
-
-                <div style={{ 
-                  display: "flex", 
-                  alignItems: "center", 
-                  justifyContent: "space-between", // Verteilt Teams und Ergebnis
-                  gap: "10px" 
-                }}>
-                  {/* Team A */}
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1, justifyContent: "flex-end" }}>
-                    <span style={{ fontWeight: "600", textAlign: "right" }}>{m.team_a}</span>
+              <div key={m.id} style={matchCardStyle}>                  
+                <div style={matchFlexStyle}>
+                  
+                  {/* Team A (Rechtsbündig) */}
+                  <div style={teamAContainerStyle}>
+                    <span style={teamNameStyle}>{m.team_a}</span>
                     <FlagIcon teamName={m.team_a} />
                   </div>
 
-                  {/* Ergebnis / Input */}
-                  <div style={{ minWidth: "60px", textAlign: "center" }}>
+                  {/* Ergebnis-Anzeige oder Eingabefeld */}
+                  <div style={scoreDisplayContainerStyle}>
                     {tip ? (
-                      <div style={{ color: "#1a73e8", fontWeight: "bold", fontSize: "1.1em" }}>
+                      <div style={savedScoreStyle}>
                         {tip.goals_a} : {tip.goals_b}
                       </div>
                     ) : (
@@ -90,27 +65,23 @@ const GroupTable = ({
                     )}
                   </div>
 
-                  {/* Team B */}
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1 }}>
+                  {/* Team B (Linksbündig) */}
+                  <div style={teamBContainerStyle}>
                     <FlagIcon teamName={m.team_b} />
-                    <span style={{ fontWeight: "600" }}>{m.team_b}</span>
+                    <span style={teamNameStyle}>{m.team_b}</span>
                   </div>
+
                 </div>
               </div>
             );
           })}
       </div>
 
-      {/* 🟢 RECHTS → Tabelle */}
-      <div style={{ marginTop: "48px", flex: 1 }}>
-        <table style={{ 
-          width: "100%", 
-          borderCollapse: "collapse",
-          boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
-          backgroundColor: "#fff"
-        }}>
+      {/* --- 🟢 RECHTE SEITE: LIVE-TABELLE --- */}
+      <div style={tableSectionStyle}>
+        <table style={tableBaseStyle}>
           <thead>
-            <tr style={{ backgroundColor: "#2d80ed", color: "#ffffff", textAlign: "left" }}>
+            <tr style={tableHeaderRowStyle}>
               <th style={thStyle}>#</th>
               <th style={thStyle}>Team</th>
               <th style={thCenterStyle}>Pkt</th>
@@ -121,22 +92,27 @@ const GroupTable = ({
           </thead>
           <tbody>
             {tableData.map((row, index) => {
-              const isQualified = index < 2;
+              const isQualified = index < 2; // Ersten zwei Plätze markieren
+              
               return (
                 <tr key={row.team} style={{ 
-                  borderBottom: "1px solid #edf2f7",
+                  ...tableRowStyle,
                   backgroundColor: isQualified ? "#f0fff4" : "#ffffff"
                 }}>
-                  <td style={{ ...tdStyle, color: "#718096", width: "30px" }}>{index + 1}.</td>
-                  <td style={{ ...tdStyle, fontWeight: isQualified ? "600" : "400", color: "#2d3748" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <td style={rankTdStyle}>{index + 1}.</td>
+                  
+                  <td style={{ ...teamTdStyle, fontWeight: isQualified ? "600" : "400" }}>
+                    <div style={teamCellContentStyle}>
                       <FlagIcon teamName={row.team} />
                       {row.team}
                     </div>
                   </td>
-                  <td style={{ ...tdCenterStyle, fontWeight: "bold", color: "#000" }}>{row.points}</td>
+
+                  <td style={pointsTdStyle}>{row.points}</td>
                   <td style={tdCenterStyle}>{row.goals}</td>
                   <td style={tdCenterStyle}>{row.conceded}</td>
+                  
+                  {/* Differenz mit dynamischer Farbe (Rot bei Negativ) */}
                   <td style={{ 
                     ...tdCenterStyle, 
                     color: row.diff < 0 ? "#e53e3e" : "#2d3748",
@@ -154,9 +130,38 @@ const GroupTable = ({
   );
 };
 
+// --- STYLES (Zusammengefasst für bessere Übersicht) ---
+
+const mainContainerStyle = { display: "flex", gap: "80px", alignItems: "flex-start", marginBottom: "60px", fontFamily: "sans-serif" };
+const matchSectionStyle = { width: "400px" };
+const tableSectionStyle = { marginTop: "48px", flex: 1 };
+
+const headerContainerStyle = { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px" };
+const groupTitleStyle = { margin: 0, color: "#333" };
+const resetButtonStyle = { padding: "4px 8px", fontSize: "0.75em", backgroundColor: "#fff", border: "1px solid #ccc", borderRadius: "4px", cursor: "pointer", color: "#666" };
+
+const matchCardStyle = { marginBottom: "12px", padding: "10px", backgroundColor: "#f8f9fa", borderRadius: "8px", fontSize: "0.85em", border: "1px solid #edf2f7", width: "360px", position: "relative" };
+const matchFlexStyle = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" };
+
+const teamAContainerStyle = { display: "flex", alignItems: "center", gap: "6px", flex: 1, justifyContent: "flex-end" };
+const teamBContainerStyle = { display: "flex", alignItems: "center", gap: "6px", flex: 1 };
+const teamNameStyle = { fontWeight: "600" };
+
+const scoreDisplayContainerStyle = { minWidth: "60px", textAlign: "center" };
+const savedScoreStyle = { color: "#1a73e8", fontWeight: "bold", fontSize: "1.1em" };
+
+const tableBaseStyle = { width: "100%", borderCollapse: "collapse", boxShadow: "0 2px 8px rgba(0,0,0,0.05)", backgroundColor: "#fff" };
+const tableHeaderRowStyle = { backgroundColor: "#2d80ed", color: "#ffffff", textAlign: "left" };
+const tableRowStyle = { borderBottom: "1px solid #edf2f7" };
+
+const teamCellContentStyle = { display: "flex", alignItems: "center", gap: "10px" };
 const thStyle = { padding: "12px 10px", fontWeight: "600", fontSize: "0.85em", textTransform: "uppercase", letterSpacing: "0.05em" };
 const thCenterStyle = { ...thStyle, textAlign: "center" };
 const tdStyle = { padding: "10px 10px", fontSize: "0.9em" };
 const tdCenterStyle = { ...tdStyle, textAlign: "center" };
+
+const rankTdStyle = { ...tdStyle, color: "#718096", width: "30px" };
+const teamTdStyle = { ...tdStyle, color: "#2d3748" };
+const pointsTdStyle = { ...tdCenterStyle, fontWeight: "bold", color: "#000" };
 
 export default GroupTable;

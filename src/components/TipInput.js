@@ -1,67 +1,147 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
-const TipInput = ({ teamA, teamB, onSave, isKO }) => {
-  const [goalsA, setGoalsA] = useState("");
-  const [goalsB, setGoalsB] = useState("");
-  const [winner, setWinner] = useState(""); // 1 für Team A, 2 für Team B
+/**
+ * TipInput: Das Eingabefeld für Tore und (bei KO-Spielen) den Sieger.
+ * Speichert automatisch bei jeder Änderung (Auto-Save).
+ */
+const TipInput = ({ 
+  teamA, teamB, onSave, isKO, 
+  initialGoalsA, initialGoalsB, initialWinner, onlyWinner 
+}) => {
+  
+  // --- STATE ---
+  const [goalsA, setGoalsA] = useState(initialGoalsA ?? "");
+  const [goalsB, setGoalsB] = useState(initialGoalsB ?? "");
+  const [winner, setWinner] = useState(initialWinner ?? "");
 
-  const handleChange = (a, b, w) => {
-    setGoalsA(a);
-    setGoalsB(b);
-    setWinner(w);
-    
-    // Wir entfernen das automatische onSave hier, 
-    // damit nicht bei jeder Ziffer gespeichert wird.
-  };
+  // Synchronisation bei externen Änderungen (z.B. durch Reset)
+  useEffect(() => {
+    setGoalsA(initialGoalsA ?? "");
+    setGoalsB(initialGoalsB ?? "");
+    setWinner(initialWinner ?? "");
+  }, [initialGoalsA, initialGoalsB, initialWinner]);
 
-  // Neue Funktion für das Speichern beim Verlassen des Feldes oder Auswahl des Siegers
-  const handleBlurOrSelect = (a, b, w) => {
+  // --- LOGIK: VALIDIERUNG & SPEICHERN ---
+
+  /**
+   * Prüft, ob die Eingaben vollständig sind und triggert onSave.
+   */
+  const checkAndSave = (a, b, w) => {
+    // FALL A: Nur Sieger-Tipp (z.B. Phase 1 KO-Baum Prognose)
+    if (onlyWinner) {
+      if (w) onSave(null, null, w);
+      return;
+    }
+
+    // FALL B: Tore-Eingabe (Reguläres Spiel)
     if (a !== "" && b !== "") {
-      // Bei Unentschieden im KO-System MUSS ein Winner gewählt sein
-      if (isKO && a === b) {
-        if (!w) return; // Noch nicht speichern, User muss erst den Dropdown bedienen
+      const gA = Number(a);
+      const gB = Number(b);
+      let finalWinner = w;
+
+      // Speziallogik für KO-System (Unentschieden erfordert manuellen Sieger-Pick)
+      if (isKO) {
+        if (gA > gB) {
+          finalWinner = "1"; 
+        } else if (gB > gA) {
+          finalWinner = "2"; 
+        } else {
+          // Bei Remis in KO-Runde muss ein Sieger im Dropdown gewählt sein
+          if (!w || w === "") return; 
+          finalWinner = w;
+        }
       }
-      onSave(Number(a), Number(b), w);
+      
+      setWinner(finalWinner);
+      onSave(gA, gB, finalWinner);
     }
   };
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "5px", fontSize: "12px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-        <input
-          type="number"
-          value={goalsA}
-          onChange={(e) => handleChange(e.target.value, goalsB, winner)}
-          onBlur={() => handleBlurOrSelect(goalsA, goalsB, winner)} // Speichern beim Verlassen
-          style={{ width: "35px" }}
-        />
-        <span>:</span>
-        <input
-          type="number"
-          value={goalsB}
-          onChange={(e) => handleChange(goalsA, e.target.value, winner)}
-          onBlur={() => handleBlurOrSelect(goalsA, goalsB, winner)} // Speichern beim Verlassen
-          style={{ width: "35px" }}
-        />
-      </div>
+  /**
+   * Behandelt Änderungen an den Tore-Inputs
+   */
+  const handleInputChange = (val, field) => {
+    let newA = goalsA;
+    let newB = goalsB;
 
-      {isKO && goalsA !== "" && goalsA === goalsB && (
+    if (field === 'A') {
+      newA = val;
+      setGoalsA(val);
+    } else {
+      newB = val;
+      setGoalsB(val);
+    }
+
+    checkAndSave(newA, newB, winner);
+  };
+
+  // --- RENDER ---
+  return (
+    <div style={containerStyle}>
+      
+      {/* ⚽ TORE-INPUTS (Ausgeblendet bei onlyWinner-Modus) */}
+      {!onlyWinner && (
+        <div style={inputGroupStyle}>
+          <input
+            type="number"
+            value={goalsA}
+            onChange={(e) => handleInputChange(e.target.value, 'A')}
+            style={numberInputStyle}
+            min="0"
+          />
+          <span style={dividerStyle}>:</span>
+          <input
+            type="number"
+            value={goalsB}
+            onChange={(e) => handleInputChange(e.target.value, 'B')}
+            style={numberInputStyle}
+            min="0"
+          />
+        </div>
+      )}
+
+      {/* 🏆 SIEGER-DROPDOWN (Erscheint bei onlyWinner ODER Remis in KO-Phase) */}
+      {(onlyWinner || (isKO && goalsA !== "" && goalsB !== "" && Number(goalsA) === Number(goalsB))) && (
         <select 
           value={winner} 
           onChange={(e) => {
-            const newWinner = e.target.value;
-            setWinner(newWinner);
-            handleBlurOrSelect(goalsA, goalsB, newWinner); // Sofort speichern bei Auswahl
+            const nextWinner = e.target.value;
+            setWinner(nextWinner);
+            checkAndSave(goalsA, goalsB, nextWinner);
           }}
-          style={{ fontSize: "10px", width: "100%" }}
+          style={selectStyle}
         >
-          <option value="">Wer kommt weiter?</option>
-          <option value="1">Team A</option>
-          <option value="2">Team B</option>
+          <option value="">Sieger wählen...</option>
+          <option value="1">{teamA}</option>
+          <option value="2">{teamB}</option>
         </select>
       )}
     </div>
   );
+};
+
+// --- STYLES ---
+
+const containerStyle = { display: "flex", flexDirection: "column", gap: "5px" };
+const inputGroupStyle = { display: "flex", alignItems: "center", justifyContent: "center", gap: "5px" };
+const dividerStyle = { fontWeight: "bold" };
+
+const numberInputStyle = { 
+  width: "35px", 
+  textAlign: "center", 
+  borderRadius: "4px", 
+  border: "1px solid #cbd5e0",
+  fontSize: "0.9rem",
+  padding: "2px"
+};
+
+const selectStyle = { 
+  fontSize: "10px", 
+  width: "100%",
+  padding: "2px",
+  borderRadius: "4px",
+  border: "1px solid #cbd5e0",
+  backgroundColor: "#fff"
 };
 
 export default TipInput;

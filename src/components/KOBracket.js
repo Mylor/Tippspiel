@@ -1,33 +1,28 @@
 import React from 'react';
+import TipInput from './TipInput';
 
+/**
+ * KOBracket: Visualisiert den Turnierbaum ab der KO-Phase.
+ * Berechnet dynamisch Linienverbindungen und Team-Platzierungen.
+ */
 const KOBracket = ({ 
-  koByRound, 
-  tips, 
-  phase, 
-  roundNames, 
-  treeHeight, 
-  getTopPosition, 
-  getTeamFromPrevious, 
-  resolveSlot, 
-  context, 
-  KO_STRUCTURE, 
-  saveTip, 
-  deleteKORound,
-  baseSpacing, 
+  koByRound, tips, phase, roundNames, treeHeight, getTopPosition, 
+  getTeamFromPrevious, resolveSlot, context, KO_STRUCTURE, 
+  saveTip, deleteKORound 
 }) => {
 
+  // --- INITIALISIERUNG & HELFER ---
+
   if (!phase) {
-    return <div style={{ padding: "20px", color: "#666" }}>Lade Turnierdaten...</div>;
+    return <div style={loadingStyle}>Lade Turnierdaten...</div>;
   }
 
+  // Fallback für Rundennamen
   const safeRoundNames = roundNames || {
-    1: "Sechzehntelfinale",
-    2: "Achtelfinale",
-    3: "Viertelfinale",
-    4: "Halbfinale",
-    5: "Finale"
+    1: "Sechzehntelfinale", 2: "Achtelfinale", 3: "Viertelfinale", 4: "Halbfinale", 5: "Finale"
   };
 
+  // Hilfsfunktion für Flaggen-Ländercodes
   const getCountryCode = (teamName) => {
     const mapping = {
       "Mexiko": "mx", "Südafrika": "za", "Südkorea": "kr", "Tschechien": "cz",
@@ -49,50 +44,59 @@ const KOBracket = ({
   const BOX_HEIGHT = 135; 
   const startIdxOfPhase = phase.id <= 2 ? 0 : phase.id - 2;
 
+  // --- INTERNE RENDER-FUNKTIONEN ---
+
+  // Zeichnet eine einzelne Team-Zeile innerhalb eines Spiel-Blocks
+  const renderTeamRow = (teamName, side, isFirst, winningSide) => {
+    const isWinner = winningSide === side;
+    return (
+      <div style={{ 
+        ...teamRowBaseStyle, 
+        background: isWinner ? "#f0fff4" : "transparent", 
+        borderBottom: isFirst ? "1px solid #f1f5f9" : "none" 
+      }}>
+        <div style={teamInfoFlexStyle}>
+          {teamName !== "?" ? (
+            <div style={flagWrapperStyle}>
+              <img 
+                src={`https://flagcdn.com/w40/${getCountryCode(teamName)}.png`} 
+                alt="" 
+                style={flagImgStyle} 
+              />
+            </div>
+          ) : (
+            <div style={flagPlaceholderStyle} />
+          )}
+          <span style={{ 
+            ...teamNameTextStyle, 
+            fontWeight: isWinner ? "700" : "400", 
+            color: teamName === "?" ? "#cbd5e0" : "#1e293b" 
+          }}>
+            {teamName}
+          </span>
+        </div>
+        {isWinner && <span style={checkMarkStyle}>✓</span>}
+      </div>
+    );
+  };
+
   return (
-    <div style={{ minWidth: "1600px", padding: "20px" }}>
+    <div style={viewportStyle}>
       
-      {/* 🔄 RESET-HEADER (Synchron mit der Baum-Anzeige) */}
-      <div style={{ display: "flex", marginBottom: "60px" }}>
+      {/* 🔄 RESET-HEADER: Zeigt Rundennamen und Reset-Buttons über den Spalten */}
+      <div style={headerRowStyle}>
         {Object.keys(koByRound)
           .sort((a, b) => Number(a) - Number(b))
-          .filter((roundKey) => {
-            const rIdx = Number(roundKey) - 1;
-            return rIdx >= startIdxOfPhase;
-          })
+          .filter((roundKey) => (Number(roundKey) - 1) >= startIdxOfPhase)
           .map((round) => (
-            <div 
-              key={round} 
-              style={{ 
-                width: "240px", 
-                marginRight: "60px", 
-                textAlign: "center", 
-                display: "flex", 
-                flexDirection: "column", 
-                gap: "8px" 
-              }}
-            >
-              <span style={{ fontWeight: "bold", fontSize: "1rem", color: "#2d3748" }}>
+            <div key={round} style={headerColumnStyle}>
+              <span style={roundTitleStyle}>
                 {Number(round) === 5 ? "Finale" : safeRoundNames[round]}
               </span>
-              
               {!phase?.is_submitted && (
                 <button 
-                  onClick={() => {
-                    // Hier im onClick-Handler darfst du loggen soviel du willst! 
-                    deleteKORound(Number(round), phase?.id);
-                  }}
-                  style={{ 
-                    padding: "4px 8px", 
-                    fontSize: "0.75rem", 
-                    backgroundColor: "#fff", 
-                    border: "1px solid #ccc", 
-                    borderRadius: "4px", 
-                    cursor: "pointer", 
-                    color: "#666",
-                    position: "relative",
-                    zIndex: 10
-                  }}
+                  onClick={() => deleteKORound(Number(round), phase?.id)}
+                  style={resetButtonStyle}
                 >
                   Reset
                 </button>
@@ -101,6 +105,7 @@ const KOBracket = ({
           ))}
       </div>
 
+      {/* 🌲 DER BAUM: Absolute Positionierung der Spiele und Linien */}
       <div style={{ position: "relative", height: `${treeHeight}px` }}>
         {Object.keys(koByRound)
           .sort((a, b) => Number(a) - Number(b))
@@ -116,7 +121,7 @@ const KOBracket = ({
                   const currentTop = getTopPosition(actualRoundIdx, matchIndex);
                   const nextTop = getTopPosition(actualRoundIdx + 1, Math.floor(matchIndex / 2));
 
-                  // TEAM-LOGIK
+                  // --- LOGIK: TEAM-HERKUNFT ERMITTELN ---
                   let teamA, teamB;
                   if (phase.id > 1 && isActiveTippingRound) {
                     teamA = m.team_a || "?";
@@ -130,131 +135,82 @@ const KOBracket = ({
                     teamB = getTeamFromPrevious(actualRoundIdx, matchIndex, "B");
                   }
 
-                  const getWinningSide = () => {
+                  // --- LOGIK: GEWINNER ERMITTELN (für visuelle Hervorhebung) ---
+                  const winningSide = (() => {
                     if (!tip) return null;
-
-                    // 1. Prüfe, ob Tore eingegeben wurden
-                    const gA = (tip.goals_a !== undefined && tip.goals_a !== null && tip.goals_a !== "") ? Number(tip.goals_a) : null;
-                    const gB = (tip.goals_b !== undefined && tip.goals_b !== null && tip.goals_b !== "") ? Number(tip.goals_b) : null;
-
-                    // 2. Wenn Tore da sind, entscheide nach Toren
+                    const gA = (tip.goals_a !== null && tip.goals_a !== "") ? Number(tip.goals_a) : null;
+                    const gB = (tip.goals_b !== null && tip.goals_b !== "") ? Number(tip.goals_b) : null;
                     if (gA !== null && gB !== null) {
                       if (gA > gB) return "1";
                       if (gB > gA) return "2";
-                      // Bei Unentschieden: Nimm den manuell gewählten Sieger aus dem Dropdown
                       return tip.winner ? String(tip.winner) : null;
                     }
-
-                    // 3. WICHTIG: Wenn KEINE Tore da sind (dein "fake Gewinner" / Phase 1), 
-                    // nimm trotzdem den gewählten Winner aus dem Dropdown
                     return tip.winner ? String(tip.winner) : null;
-                  };
-
-                  const winningSide = getWinningSide();
-
-                  const renderTeamRow = (teamName, side, isFirst) => {
-                    const isWinner = winningSide === side;
-                    return (
-                      <div style={{ 
-                        padding: "10px 12px", display: "flex", alignItems: "center", justifyContent: "space-between",
-                        background: isWinner ? "#f0fff4" : "transparent", borderBottom: isFirst ? "1px solid #f1f5f9" : "none", height: "40px"
-                      }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                          {teamName !== "?" ? (
-                            <div style={{ width: "22px", height: "16px", overflow: "hidden", borderRadius: "2px", border: "1px solid #eee", display: "flex", alignItems: "center" }}>
-                              <img src={`https://flagcdn.com/w40/${getCountryCode(teamName)}.png`} alt="" style={{ width: "100%", height: "auto" }} onError={(e) => e.target.style.visibility = 'hidden'} />
-                            </div>
-                          ) : (
-                            <div style={{ width: "22px", height: "16px", backgroundColor: "#f1f5f9", borderRadius: "2px" }} />
-                          )}
-                          <span style={{ fontSize: "0.85rem", fontWeight: isWinner ? "700" : "400", color: teamName === "?" ? "#cbd5e0" : "#1e293b" }}>
-                            {teamName}
-                          </span>
-                        </div>
-                        {isWinner && <span style={{ color: "#48bb78", fontWeight: "bold" }}>✓</span>}
-                      </div>
-                    );
-                  };
+                  })();
 
                   return (
-                    <div key={m.id} style={{ position: "absolute", top: `${currentTop}px`, left: `${visibleRoundIndex * 300}px`, height: `${BOX_HEIGHT}px` }}>
-                      <div style={{ fontSize: "0.65rem", fontWeight: "bold", color: "#878b8e", textTransform: "uppercase", marginBottom: "4px" }}>
+                    <div key={m.id} style={{ 
+                      position: "absolute", 
+                      top: `${currentTop}px`, 
+                      left: `${visibleRoundIndex * 300}px`, 
+                      height: `${BOX_HEIGHT}px` 
+                    }}>
+                      {/* Match-Label (z.B. "Viertelfinale 1") */}
+                      <div style={matchLabelStyle}>
                         {actualRoundIdx === 4 ? (matchIndex === 1 ? "Spiel um Platz 3" : "Finale") : `${safeRoundNames[round]} ${matchIndex + 1}`}
                       </div>
 
-                      <div style={{ width: "240px", minHeight: "115px", background: "#fff", borderRadius: "10px", boxShadow: "0 4px 12px rgba(0,0,0,0.05)", border: "1px solid #e2e8f0", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                        {renderTeamRow(teamA, "1", true)}
-                        {renderTeamRow(teamB, "2", false)}
+                      {/* Die Match-Box */}
+                      <div style={matchBoxStyle}>
+                        {renderTeamRow(teamA, "1", true, winningSide)}
+                        {renderTeamRow(teamB, "2", false, winningSide)}
 
-                        <div style={{ padding: "6px 10px", background: "#f8fafc", borderTop: "1px solid #e2e8f0" }}>
+                        {/* TIPP-EINGABE / ANZEIGE-BEREICH */}
+                        <div style={tipContainerStyle}>
                           {!phase?.is_submitted ? (
-                            (teamA !== "?" && teamB !== "?") ? (
-                              (phase.id > 1 && isActiveTippingRound) ? (
-                                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
-                                    <input type="number" value={tip?.goals_a ?? ""} onChange={(e) => saveTip(m.id, e.target.value, tip?.goals_b ?? "", null)} style={{ width: "45px", textAlign: "center", border: "1px solid #cbd5e0", borderRadius: "4px" }} placeholder="0" />
-                                    <span style={{ fontWeight: "bold" }}>:</span>
-                                    <input type="number" value={tip?.goals_b ?? ""} onChange={(e) => saveTip(m.id, tip?.goals_a ?? "", e.target.value, null)} style={{ width: "45px", textAlign: "center", border: "1px solid #cbd5e0", borderRadius: "4px" }} placeholder="0" />
-                                  </div>
-                                  {tip?.goals_a !== "" && tip?.goals_b !== "" && Number(tip?.goals_a) === Number(tip?.goals_b) && (
-                                    <select value={tip?.winner || ""} onChange={(e) => saveTip(m.id, tip.goals_a, tip.goals_b, e.target.value)} style={{ width: "100%", fontSize: "0.65rem", border: "1px solid #cbd5e0", borderRadius: "4px" }}>
-                                      <option value="">Wer kommt weiter?</option>
-                                      <option value="1">{teamA}</option>
-                                      <option value="2">{teamB}</option>
-                                    </select>
-                                  )}
-                                </div>
+                            tip ? (
+                              <div style={savedTipDisplayStyle}>
+                                {(tip.goals_a !== null && tip.goals_b !== null && tip.goals_a !== "") 
+                                  ? `${tip.goals_a} : ${tip.goals_b}` 
+                                  : (String(tip.winner) === "1" ? teamA : teamB) 
+                                }
+                                {tip.goals_a !== null && tip.goals_a !== "" && Number(tip.goals_a) === Number(tip.goals_b) && (
+                                  <span style={winnerSubTextStyle}>
+                                    Sieger: {String(tip.winner) === "1" ? teamA : teamB}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              (teamA !== "?" && teamB !== "?") ? (
+                                <TipInput 
+                                  teamA={teamA} teamB={teamB} isKO={true}
+                                  onSave={(a, b, w) => saveTip(m.id, a, b, w)}
+                                  initialGoalsA={tip?.goals_a} initialGoalsB={tip?.goals_b} initialWinner={tip?.winner}
+                                  onlyWinner={phase.id === 1 || !isActiveTippingRound} 
+                                />
                               ) : (
-                                <select value={tip?.winner || ""} onChange={(e) => saveTip(m.id, null, null, e.target.value)} style={{ width: "100%", fontSize: "0.7rem", border: "1px solid #cbd5e0", borderRadius: "4px" }}>
-                                  <option value="">Sieger wählen...</option>
-                                  <option value="1">{teamA}</option>
-                                  <option value="2">{teamB}</option>
-                                </select>
+                                <div style={waitingTextStyle}>Warten...</div>
                               )
-                            ) : <div style={{ fontSize: "0.65rem", color: "#94a3b8", textAlign: "center" }}>Warten...</div>
+                            )
                           ) : (
-                            <div style={{ fontSize: "0.75rem", textAlign: "center", fontWeight: "bold", color: "#475569" }}>
+                            <div style={finalResultStyle}>
                               {tip?.goals_a !== null && tip?.goals_a !== "" ? `${tip.goals_a} : ${tip.goals_b}` : (tip?.winner ? (Number(tip.winner) === 1 ? teamA : teamB) : "-")}
                             </div>
                           )}
                         </div>
                       </div>
 
-                      {/* LINIEN-LOGIK */}
+                      {/* 📐 LINIEN: Verbindungen zur nächsten Runde */}
                       {actualRoundIdx < 4 && (
                         <>
-                          {/* 1. Horizontale Linie aus der Box raus */}
+                          <div style={horizontalLineStyle} />
                           <div style={{ 
-                            position: "absolute", 
-                            top: "82px", 
-                            right: "-30px", 
-                            width: "30px", 
-                            height: "2px", 
-                            background: "#cbd5e0" 
-                          }} />
-                          
-                          {/* 2. Vertikale Linie zur Mitte (Treffpunkt) */}
-                          <div style={{ 
-                            position: "absolute", 
-                            // Wenn matchIndex gerade ist (0, 2...), geht die Linie nach unten.
-                            // Wenn matchIndex ungerade ist (1, 3...), geht sie nach oben.
+                            ...verticalLineBaseStyle,
                             top: matchIndex % 2 === 0 ? "82px" : `calc(82px - ${Math.abs(nextTop - currentTop)}px)`, 
-                            right: "-30px", 
-                            width: "2px", 
                             height: `${Math.abs(nextTop - currentTop)}px`, 
-                            background: "#cbd5e0" 
                           }} />
-
-                          {/* 3. Horizontale Linie in die nächste Runde (nur vom "oberen" Spiel gezeichnet, damit sie nicht doppelt liegt) */}
                           {matchIndex % 2 === 0 && (
-                            <div style={{ 
-                              position: "absolute", 
-                              top: `${(nextTop - currentTop) + 82}px`, 
-                              right: "-60px", 
-                              width: "30px", 
-                              height: "2px", 
-                              background: "#cbd5e0" 
-                            }} />
+                            <div style={{ ...horizontalLineStyle, top: `${(nextTop - currentTop) + 82}px`, right: "-60px" }} />
                           )}
                         </>
                       )}
@@ -268,5 +224,36 @@ const KOBracket = ({
     </div>
   );
 };
+
+// --- STYLES ---
+
+const viewportStyle = { minWidth: "1600px", padding: "20px" };
+const loadingStyle = { padding: "20px", color: "#666" };
+
+const headerRowStyle = { display: "flex", marginBottom: "60px" };
+const headerColumnStyle = { width: "240px", marginRight: "60px", textAlign: "center", display: "flex", flexDirection: "column", gap: "8px" };
+const roundTitleStyle = { fontWeight: "bold", fontSize: "1rem", color: "#2d3748" };
+const resetButtonStyle = { padding: "4px 8px", fontSize: "0.75rem", backgroundColor: "#fff", border: "1px solid #ccc", borderRadius: "4px", cursor: "pointer", color: "#666", zIndex: 10 };
+
+const matchLabelStyle = { fontSize: "0.65rem", fontWeight: "bold", color: "#878b8e", textTransform: "uppercase", marginBottom: "4px" };
+const matchBoxStyle = { width: "240px", minHeight: "115px", background: "#fff", borderRadius: "10px", boxShadow: "0 4px 12px rgba(0,0,0,0.05)", border: "1px solid #e2e8f0", display: "flex", flexDirection: "column", overflow: "hidden" };
+
+const teamRowBaseStyle = { padding: "10px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", height: "40px" };
+const teamInfoFlexStyle = { display: "flex", alignItems: "center", gap: "10px" };
+const teamNameTextStyle = { fontSize: "0.85rem" };
+const checkMarkStyle = { color: "#48bb78", fontWeight: "bold" };
+
+const flagWrapperStyle = { width: "22px", height: "16px", overflow: "hidden", borderRadius: "2px", border: "1px solid #eee", display: "flex", alignItems: "center" };
+const flagImgStyle = { width: "100%", height: "auto" };
+const flagPlaceholderStyle = { width: "22px", height: "16px", backgroundColor: "#f1f5f9", borderRadius: "2px" };
+
+const tipContainerStyle = { padding: "6px 10px", background: "#f8fafc", borderTop: "1px solid #e2e8f0" };
+const savedTipDisplayStyle = { fontSize: "0.9rem", textAlign: "center", fontWeight: "bold", color: "#1a73e8", display: "flex", flexDirection: "column", gap: "2px" };
+const winnerSubTextStyle = { fontSize: "0.65rem", color: "#666", fontWeight: "normal" };
+const waitingTextStyle = { fontSize: "0.65rem", color: "#94a3b8", textAlign: "center" };
+const finalResultStyle = { fontSize: "0.75rem", textAlign: "center", fontWeight: "bold", color: "#475569" };
+
+const horizontalLineStyle = { position: "absolute", top: "82px", right: "-30px", width: "30px", height: "2px", background: "#cbd5e0" };
+const verticalLineBaseStyle = { position: "absolute", right: "-30px", width: "2px", background: "#cbd5e0" };
 
 export default KOBracket;
