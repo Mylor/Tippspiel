@@ -1,84 +1,83 @@
-import { getThirdPlaceForSlot } from './thirdPlaceMapping'; // Pfad anpassen!
-
+import { getThirdPlaceForSlot } from './thirdPlaceMapping';
 
 /**
- * Berechnet die vertikale Position eines Spiels im Baum
+ * BERECHNUNG: VERTIKALE POSITION (BAUM-GEOMETRIE)
+ * Berechnet, wo eine Match-Box basierend auf Runde und Index stehen muss.
  */
 export const getTopPosition = (roundIndex, matchIndex, treeHeight, currentBaseSpacing) => {
   const step = currentBaseSpacing * Math.pow(2, roundIndex);
+  
+  // Sonderlogik für das Finale & Spiel um Platz 3 (beide in Runde 4)
   if (roundIndex === 4) {
     const finaleTop = (0 * step) + (step / 2) - (currentBaseSpacing / 2);
+    // Platz 3 Spiel wird 200px unter das Finale geschoben
     if (matchIndex === 1) {
       return finaleTop + 200; 
     }
     return finaleTop;
   }
 
-  // Standardformel für alle anderen Runden
+  // Standardformel für die symmetrische Baumstruktur
   return matchIndex * step + (step / 2) - (currentBaseSpacing / 2);
 };
 
 /**
- * Ermittelt, welches Team in einem Slot (z.B. "A1") steht
+ * RESOLVER: SLOTS ZU TEAMNAMEN
+ * Wandelt Platzhalter wie "A1" oder "1E" in echte Teamnamen um.
  */
-
 export function resolveSlot(slot, context) {
-  
   if (!context || !context.groups) {
-    return slot; // Wenn kein Context da ist, gib einfach "1A" zurück statt abzustürzen
+    return slot; // Fallback, falls Daten noch laden
   }
 
   const { groups, thirdPlaces } = context;
 
-  // 1. Logik für Gruppensieger und Zweite (z.B. "A1", "B2")
+  // 1. Gruppensieger und Zweite (z.B. "A1", "B2")
   if (/^[A-Z][12]$/.test(slot)) {
     const groupLetter = slot[0]; 
-    const position = Number(slot[1]) - 1; // 0 für 1. Platz, 1 für 2. Platz
-    
-    // Holt das Team aus dem groups-Objekt (z.B. groups["A"][0])
+    const position = Number(slot[1]) - 1; // Index 0 = 1. Platz, 1 = 2. Platz
     return groups[groupLetter]?.[position] || "?";
   }
 
-  // 2. DIE NEUE LOGIK FÜR DIE DRITTPLATZIERTEN (Slots wie "1A", "1B" etc.)
-  // Wir prüfen, ob der Slot einer der definierten Slots für Dritte ist
+  // 2. Beste Gruppendritte (z.B. "1A", "1B")
   const thirdPlaceSlots = ["1A", "1B", "1D", "1E", "1G", "1I", "1K", "1L"];
-  
   if (thirdPlaceSlots.includes(slot)) {
-    // Hier rufen wir deine 495er-Mapping-Funktion auf
-    // thirdPlaces muss das Array mit den 8 besten Dritten sein
+    // Nutzt das Mapping-Modul für die komplexen Abhängigkeiten (495er Kombinationen)
     return getThirdPlaceForSlot(slot, thirdPlaces);
   }
 
-  // Fallback für alte Slots oder Platzhalter
   return slot;
 }
 
 /**
- * Ermittelt den Gewinner eines Spiels aus den Tipps
+ * HELFER: GEWINNER-ERMITTLUNG
  */
 export function getWinner(matchId, tips) {
   const tip = tips[matchId];
   if (!tip) return null;
   if (tip.winner) return Number(tip.winner);
-  const gA = Number(tip.goals_a); const gB = Number(tip.goals_b);
-  if (gA > gB) return 1; if (gB > gA) return 2;
+  
+  const gA = Number(tip.goals_a); 
+  const gB = Number(tip.goals_b);
+  if (gA > gB) return 1; 
+  if (gB > gA) return 2;
   return null;
 }
 
+/**
+ * REKURSION: TEAM-HERKUNFT
+ * Die wichtigste Funktion: Findet heraus, wer in ein Feld einzieht,
+ * indem sie im Baum zurückschaut (Prognose) oder Datenbankwerte nutzt.
+ */
 export function getTeamFromPrevious(roundIndex, matchIndex, side, koByRound, tips, context) {
-  // 1. PHASE-CHECK: Wir holen die phaseId direkt aus dem context
-  // WICHTIG: Stelle sicher, dass du in TippsPage.js bei context auch phaseId: phase.id übergibst!
   const currentPhaseId = context?.phaseId || 1;
   const startRoundOfPhase = currentPhaseId === 1 ? 0 : currentPhaseId - 2;
 
-  // 2. BASIS-FALL FÜR REALE SPIELE (Phase 2, 3, 4, 5):
-  // Wenn wir uns in der ersten sichtbaren Runde der Phase befinden, 
-  // kommen die Teams aus der Datenbank (m.team_a / m.team_b)
+  // 1. BASIS-FALL: Reale Teams aus der Datenbank (ab Phase 2+)
   if (currentPhaseId > 1 && roundIndex === startRoundOfPhase) {
     const rounds = Object.keys(koByRound).map(Number).sort((a, b) => a - b);
     const currentRoundKey = rounds[roundIndex];
-    const currentRoundMatches = koByRound[currentRoundKey];
-    const currentMatch = currentRoundMatches?.[matchIndex];
+    const currentMatch = koByRound[currentRoundKey]?.[matchIndex];
     
     if (currentMatch) {
       const team = side === "A" ? currentMatch.team_a : currentMatch.team_b;
@@ -86,17 +85,17 @@ export function getTeamFromPrevious(roundIndex, matchIndex, side, koByRound, tip
     }
   }
 
-  // 3. REKURSIONS-LOGIK FÜR PROGNOSEN ("Fake-Spiele")
+  // 2. REKURSIONS-SCHRITT: Wer hat das vorherige Spiel gewonnen?
   const rounds = Object.keys(koByRound).map(Number).sort((a, b) => a - b);
   const prevRoundKey = rounds[roundIndex - 1];
   const prevRound = koByRound[prevRoundKey];
 
   if (!prevRound) return "?";
 
-  // Wer war das Quell-Spiel? (Logik für Finale/Platz 3 inklusive)
+  // Welches Spiel aus der Vorrunde füttert dieses Feld?
   let sourceMatchIndex;
   if (roundIndex === 4) {
-    sourceMatchIndex = side === "A" ? 0 : 1;
+    sourceMatchIndex = side === "A" ? 0 : 1; // Finale/Platz 3 Logik
   } else {
     sourceMatchIndex = side === "A" ? matchIndex * 2 : matchIndex * 2 + 1;
   }
@@ -106,7 +105,7 @@ export function getTeamFromPrevious(roundIndex, matchIndex, side, koByRound, tip
 
   const tip = tips[sourceMatch.id];
   
-  // WICHTIG: Hier berechnen wir den Winner basierend auf Toren ODER manuellem Winner
+  // Interner Winner-Check (Tore vs. manueller Klick)
   const getWinnerFromTip = (t) => {
     if (!t) return null;
     const gA = (t.goals_a !== null && t.goals_a !== "") ? Number(t.goals_a) : null;
@@ -114,7 +113,6 @@ export function getTeamFromPrevious(roundIndex, matchIndex, side, koByRound, tip
     if (gA !== null && gB !== null) {
       if (gA > gB) return 1;
       if (gB > gA) return 2;
-      return t.winner ? Number(t.winner) : null;
     }
     return t.winner ? Number(t.winner) : null;
   };
@@ -122,13 +120,13 @@ export function getTeamFromPrevious(roundIndex, matchIndex, side, koByRound, tip
   const winner = getWinnerFromTip(tip);
   if (!winner) return "?";
 
-  // Gewinner/Verlierer Tausch für Spiel um Platz 3
+  // Sonderlogik: Spiel um Platz 3 bekommt die Verlierer
   const isThirdPlaceMatch = (roundIndex === 4 && matchIndex === 1);
   let effectiveWinnerSide = (isThirdPlaceMatch) 
     ? (winner === 1 ? "B" : "A") 
     : (winner === 1 ? "A" : "B");
 
-  // 4. DER ÜBERGANG ZUR GRUPPENPHASE (NUR IN PHASE 1)
+  // 3. ÜBERGANG ZU GRUPPENPHASE: Wenn wir ganz am Anfang des Baums sind
   if (roundIndex === 1 && currentPhaseId === 1) {
     const KO_STRUCTURE = {
       round16: [
@@ -143,13 +141,8 @@ export function getTeamFromPrevious(roundIndex, matchIndex, side, koByRound, tip
     return resolveSlot(slotCode, context);
   } 
   
-  // 5. REKURSIVE WEITERGABE
+  // 4. WEITERER RÜCKSPRUNG (Rekursion)
   return getTeamFromPrevious(
-    roundIndex - 1, 
-    sourceMatchIndex, 
-    effectiveWinnerSide, 
-    koByRound, 
-    tips, 
-    context
+    roundIndex - 1, sourceMatchIndex, effectiveWinnerSide, koByRound, tips, context
   );
 }

@@ -1,17 +1,36 @@
 import { useState, useMemo } from 'react';
 import { getBestThirds } from '../Utils/calcTable';
 
+/**
+ * useTournamentLogic: Ein Custom-Hook, der den State der Gruppen verwaltet
+ * und automatisch abgeleitete Daten wie die Tabelle der besten Gruppendritten berechnet.
+ */
 export const useTournamentLogic = (initialData) => {
+  
+  // --- 1. STATE-MANAGEMENT ---
+  // Speichert den aktuellen Stand aller Gruppen und deren Spiele
   const [groups, setGroups] = useState(initialData);
 
-  // Berechnet die besten Dritten automatisch neu, wenn sich Gruppen ändern
+  // --- 2. ABGELEITETE LOGIK (MEMOIZATION) ---
+  // Berechnet die besten Dritten automatisch neu, wenn sich die Gruppen-Daten ändern.
+  // useMemo verhindert unnötige Neuberechnungen bei jedem Render.
   const bestThirds = useMemo(() => {
     return getBestThirds(groups);
   }, [groups]);
 
+  // --- 3. HANDLER-FUNKTIONEN (AKTIONEN) ---
+  /**
+   * Aktualisiert ein Spielergebnis innerhalb einer Gruppe.
+   */
   const updateMatchResult = (groupId, matchId, goals1, goals2) => {
-    // ... Logik zum Updaten der Tore
+    // ... Logik zum Updaten der Tore bleibt hier unverändert
   };
 
-  return { groups, bestThirds, updateMatchResult };
+  // --- 4. PUBLIC API ---
+  // Diese Werte stehen der Komponente, die den Hook nutzt, zur Verfügung.
+  return { 
+    groups, 
+    bestThirds, 
+    updateMatchResult 
+  };
 };
