@@ -31,9 +31,12 @@ const PHASE_SPACING = {
   1: 300, 2: 200, 3: 100, 4: 50, 5: 25
 };
 
+const PHASE_HEIGHTS = {
+  1: 2400, 2: 1200, 3: 800, 4: 600, 5: 400
+};
+
 /**
- * TippsPage: Hauptseite für die Tipp-Abgabe.
- * Verwaltet den State für Spiele, Tipps und die Turnierphase.
+ * TippsPage: Hauptseite für die Tipp-Abgabe der Spieler.
  */
 function TippsPage({ player, phaseId, context }) {
   
@@ -44,24 +47,25 @@ function TippsPage({ player, phaseId, context }) {
   const [treeHeight, setTreeHeight] = useState(800);
   const groupRef = useRef(null);
 
-  // --- LIFECYCLE / EFFEKTE ---
-
-  // Initiales Laden der Daten bei Phasenwechsel
+  // --- LIFECYCLE ---
   useEffect(() => {
     fetchMatches();
     fetchTips();
     fetchPhase();
   }, [phaseId]);
 
-  // Dynamische Höhenberechnung für den KO-Baum (orientiert sich an der Gruppenliste)
   useEffect(() => {
-    if (groupRef.current) {
+    const currentId = Number(phaseId);
+    if (PHASE_HEIGHTS[currentId]) {
+      setTreeHeight(PHASE_HEIGHTS[currentId]);
+    } else if (currentId === 1 && groupRef.current) {
       setTreeHeight(groupRef.current.offsetHeight);
+    } else {
+      setTreeHeight(2000);
     }
-  }, [matches, tips]);
+  }, [matches, tips, phaseId]);
 
-  // --- DATENBANK-ABFRAGEN (FETCH) ---
-
+  // --- FETCH ---
   async function fetchMatches() {
     const { data } = await supabase.from("match").select("*");
     setMatches(data || []);
@@ -88,18 +92,13 @@ function TippsPage({ player, phaseId, context }) {
     setPhase(data);
   }
 
-  // --- SCHREIB-AKTIONEN (MUTATIONS) ---
-
-  /**
-   * Speichert oder aktualisiert einen Tipp in der Datenbank.
-   */
+  // --- MUTATIONS ---
   async function saveTip(matchId, goalsA, goalsB, winner) {
     if (phase?.is_submitted) return;
 
     const gA = goalsA !== null ? Number(goalsA) : null;
     const gB = goalsB !== null ? Number(goalsB) : null;
     
-    // Automatischer Gewinner-Check für die Tabellen-Weiterleitung
     let calculatedWinner = winner; 
     if (gA !== null && gB !== null) {
       if (gA > gB) calculatedWinner = "1";
@@ -118,9 +117,6 @@ function TippsPage({ player, phaseId, context }) {
     fetchTips();
   }
 
-  /**
-   * Löscht Tipps einer kompletten Gruppe und alle nachfolgenden KO-Tipps.
-   */
   async function deleteGroupTips(groupName) {
     const groupMatchIds = matches.filter(m => m.group_name === groupName).map(m => m.id);
     const koMatchIds = matches.filter(m => m.stage === "ko").map(m => m.id);
@@ -133,9 +129,6 @@ function TippsPage({ player, phaseId, context }) {
     fetchTips();
   }
   
-  /**
-   * Setzt eine spezifische KO-Runde und alle darauf folgenden Runden zurück.
-   */
   async function deleteKORound(stageOrder, phaseId) {
     const idsToDelete = matches
       .filter(m => m.stage === "ko" && Number(m.stage_order) >= Number(stageOrder))
@@ -156,13 +149,9 @@ function TippsPage({ player, phaseId, context }) {
     }
   }
 
-  // --- TURNIER-LOGIK & BERECHNUNGEN ---
+  // --- LOGIK ---
+  if (!phase) return <div style={{ padding: "20px" }}>Lade Turnierdaten...</div>;
 
-  if (!phase) {
-    return <div style={{ padding: "20px" }}>Lade Turnierdaten...</div>;
-  }
-
-  // 1. Gruppenspiele sortieren und Tabellen berechnen
   const grouped = {};
   matches.filter(m => m.stage === "group").forEach(m => {
     if (!grouped[m.group_name]) grouped[m.group_name] = [];
@@ -174,16 +163,14 @@ function TippsPage({ player, phaseId, context }) {
     teams: calculateTable(grouped[groupName], tips)
   }));
 
-  // 2. Ermittlung der besten Gruppendritten
   const bestThirds = getBestThirds(allGroupsArray);
-  const top8Thirds = bestThirds.slice(0, 8); // Nur Top 8 kommen in KO-Runde
+  const top8Thirds = bestThirds.slice(0, 8);
 
   const groupResults = {};
   allGroupsArray.forEach(g => { 
     groupResults[g.id] = g.teams.map(t => t.team); 
   });
   
-  // 3. KO-Spiele für den Baum vorbereiten
   const koMatches = matches
     .filter(m => m.stage === "ko")
     .sort((a,b) => a.stage_order - b.stage_order || a.ko_order - b.ko_order);
@@ -194,25 +181,23 @@ function TippsPage({ player, phaseId, context }) {
     koByRound[m.stage_order].push(m);
   });
 
-  // 4. Layout-Parameter für den Baum
   const currentSpacing = PHASE_SPACING[phase?.id] || 70;
   const startIdxOfPhase = phase?.id <= 2 ? 0 : phase?.id - 2;
   const topOffset = getTopPosition(startIdxOfPhase, 0, treeHeight, currentSpacing);
 
-  // Zentrales Context-Objekt für die KO-Ermittlung
   const tournamentContext = { 
     groups: groupResults, 
     thirdPlaces: top8Thirds, 
-    tips,
+    tips: tips,
     phaseId: phase?.id
   };
 
   // --- RENDER ---
   return (
-    <div style={{ display: "flex", gap: phase?.id === 1 ? "50px" : "0px", padding: "20px" }}>
+    <div style={{ display: "flex", gap: Number(phaseId) === 1 ? "50px" : "0px", padding: "20px", width: "max-content" }}>
       
-      {/* LINKSE SEITE: Gruppenphase (Nur in Phase 1 sichtbar) */}
-      {phase?.id === 1 && (
+      {/* LINKSE SEITE: Gruppenphase */}
+      {Number(phaseId) === 1 && (
         <div ref={groupRef} style={{ flex: "0 0 auto" }}>
           <h3>Gruppenphase</h3>
           {Object.keys(grouped).sort().map(name => (
@@ -232,8 +217,8 @@ function TippsPage({ player, phaseId, context }) {
       )}
 
       {/* RECHTE SEITE: KO-Baum */}
-      <div style={{ flex: "1" }}>
-        <h3 style={{ marginLeft: phase?.id === 1 ? "0" : "20px" }}>KO-Phase</h3>
+      <div style={{ flex: "1", minWidth: "fit-content" }}>
+        <h3 style={{ marginLeft: Number(phaseId) === 1 ? "0" : "20px" }}>KO-Phase</h3>
         <KOBracket 
           koByRound={koByRound} 
           tips={tips} 

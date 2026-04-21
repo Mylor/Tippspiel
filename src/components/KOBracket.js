@@ -8,7 +8,7 @@ import TipInput from './TipInput';
 const KOBracket = ({ 
   koByRound, tips, phase, roundNames, treeHeight, getTopPosition, 
   getTeamFromPrevious, resolveSlot, context, KO_STRUCTURE, 
-  saveTip, deleteKORound 
+  saveTip, deleteKORound, isAdmin 
 }) => {
 
   // --- INITIALISIERUNG & HELFER ---
@@ -93,7 +93,9 @@ const KOBracket = ({
               <span style={roundTitleStyle}>
                 {Number(round) === 5 ? "Finale" : safeRoundNames[round]}
               </span>
-              {!phase?.is_submitted && (
+              
+              {/* Der Button verschwindet, wenn isAdmin wahr ist */}
+              {!phase?.is_submitted && !isAdmin && ( 
                 <button 
                   onClick={() => deleteKORound(Number(round), phase?.id)}
                   style={resetButtonStyle}
@@ -167,35 +169,51 @@ const KOBracket = ({
 
                         {/* TIPP-EINGABE / ANZEIGE-BEREICH */}
                         <div style={tipContainerStyle}>
-                          {!phase?.is_submitted ? (
-                            tip ? (
-                              <div style={savedTipDisplayStyle}>
-                                {(tip.goals_a !== null && tip.goals_b !== null && tip.goals_a !== "") 
-                                  ? `${tip.goals_a} : ${tip.goals_b}` 
-                                  : (String(tip.winner) === "1" ? teamA : teamB) 
-                                }
-                                {tip.goals_a !== null && tip.goals_a !== "" && Number(tip.goals_a) === Number(tip.goals_b) && (
-                                  <span style={winnerSubTextStyle}>
-                                    Sieger: {String(tip.winner) === "1" ? teamA : teamB}
-                                  </span>
-                                )}
-                              </div>
-                            ) : (
-                              (teamA !== "?" && teamB !== "?") ? (
-                                <TipInput 
-                                  teamA={teamA} teamB={teamB} isKO={true}
-                                  onSave={(a, b, w) => saveTip(m.id, a, b, w)}
-                                  initialGoalsA={tip?.goals_a} initialGoalsB={tip?.goals_b} initialWinner={tip?.winner}
-                                  onlyWinner={phase.id === 1 || !isActiveTippingRound} 
-                                />
-                              ) : (
-                                <div style={waitingTextStyle}>Warten...</div>
-                              )
-                            )
+                          {/* Wenn Admin, zeige IMMER das Eingabefeld (TipInput) */}
+                          {isAdmin ? (
+                            <TipInput 
+                              teamA={teamA} 
+                              teamB={teamB} 
+                              isKO={true}
+                              onSave={(a, b, w) => saveTip(m.id, a, b, w)}
+                              initialGoalsA={tip?.goals_a} 
+                              initialGoalsB={tip?.goals_b} 
+                              initialWinner={tip?.winner}
+                              // Im Admin-Modus erlauben wir immer die Tore-Eingabe
+                              onlyWinner={false} 
+                            />
                           ) : (
-                            <div style={finalResultStyle}>
-                              {tip?.goals_a !== null && tip?.goals_a !== "" ? `${tip.goals_a} : ${tip.goals_b}` : (tip?.winner ? (Number(tip.winner) === 1 ? teamA : teamB) : "-")}
-                            </div>
+                            /* Logik für normale User (nur zur Info, nicht ändern) */
+                            !phase?.is_submitted ? (
+                              tip ? (
+                                <div style={savedTipDisplayStyle}>
+                                  {(tip.goals_a !== null && tip.goals_b !== null && tip.goals_a !== "") 
+                                    ? `${tip.goals_a} : ${tip.goals_b}` 
+                                    : (String(tip.winner) === "1" ? teamA : teamB) 
+                                  }
+                                  {tip.goals_a !== null && tip.goals_a !== "" && Number(tip.goals_a) === Number(tip.goals_b) && (
+                                    <span style={winnerSubTextStyle}>
+                                      Sieger: {String(tip.winner) === "1" ? teamA : teamB}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                (teamA !== "?" && teamB !== "?") ? (
+                                  <TipInput 
+                                    teamA={teamA} teamB={teamB} isKO={true}
+                                    onSave={(a, b, w) => saveTip(m.id, a, b, w)}
+                                    initialGoalsA={tip?.goals_a} initialGoalsB={tip?.goals_b} initialWinner={tip?.winner}
+                                    onlyWinner={phase.id === 1 || !isActiveTippingRound} 
+                                  />
+                                ) : (
+                                  <div style={waitingTextStyle}>Warten...</div>
+                                )
+                              )
+                            ) : (
+                              <div style={finalResultStyle}>
+                                {tip?.goals_a !== null && tip?.goals_a !== "" ? `${tip.goals_a} : ${tip.goals_b}` : (tip?.winner ? (Number(tip.winner) === 1 ? teamA : teamB) : "-")}
+                              </div>
+                            )
                           )}
                         </div>
                       </div>
