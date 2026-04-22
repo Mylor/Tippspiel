@@ -119,7 +119,7 @@ function AdminResultsPage({ phaseId }) {
         );
 
         return {
-          user_id: t.player_id, // GEÄNDERT: Dein Screenshot zeigt "player_id"
+          player_id: t.player_id, // GEÄNDERT: Dein Screenshot zeigt "player_id"
           match_id: matchId,
           points_total: result.total,
           breakdown: result.breakdown,

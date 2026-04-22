@@ -519,36 +519,36 @@ function getAllCombinations(arr, k) {
   return results;
 }
 
-// Erzeuge die Liste und drehe sie um, damit EFGHIJKL die Nr. 1 ist
+// Hier ist dein FIFA-Reverse
 const ALL_COMBOS = getAllCombinations(GROUPS, 8).reverse();
 
-// --- 3. DIE HAUPTFUNKTION ---
-
-/**
- * Ermittelt das Team für einen bestimmten KO-Slot basierend auf den Top 8 Dritten
- * @param {string} slot - Der Slot des Gruppensiegers (z.B. "1A")
- * @param {Array} bestThirds - Die 8 Teams aus deiner getBestThirds-Funktion
- */
 export function getThirdPlaceForSlot(slot, bestThirds) {
-  if (!bestThirds || bestThirds.length < 8) return "?";
+  // 1. Validierung
+  if (!bestThirds || bestThirds.length < 8) {
+    console.warn("Abbruch: Nicht genug bestThirds vorhanden (benötigt 8).");
+    return "?";
+  }
 
-  // 1. Welche Gruppen sind weitergekommen? (z.B. "ABCEGHIJ")
+  // 2. Combo erstellen
+  // Wir sortieren alphabetisch, damit "ABEFHIJK" entsteht
   const currentCombo = bestThirds
     .map(t => t.group)
+    .filter(Boolean)
     .sort()
-    .join("");
+    .join("")
+    .trim();
 
-  // 2. Welche Option-Nummer (1-495) ist das?
+  
   const comboIndex = ALL_COMBOS.indexOf(currentCombo);
-  if (comboIndex === -1) return "Combo Not Found";
-  const optionNumber = comboIndex + 1;
+  console.log("Gefundener Index in ALL_COMBOS:", comboIndex);
 
-  // 3. Mapping-Array für diese Option holen
+  if (comboIndex === -1) return "Combo Not Found";
+
+  const optionNumber = comboIndex + 1;
   const mapping = OPTIONS_DATA[optionNumber];
+
   if (!mapping) return `Option ${optionNumber} missing`;
 
-  // 4. Welcher Index gehört zu welchem Gruppensieger?
-  // Deine Tabelle: 1A 1B 1D 1E 1G 1I 1K 1L
   const slotToIndex = {
     "1A": 0, "1B": 1, "1D": 2, "1E": 3, "1G": 4, "1I": 5, "1K": 6, "1L": 7
   };
@@ -556,10 +556,7 @@ export function getThirdPlaceForSlot(slot, bestThirds) {
   const targetIndex = slotToIndex[slot];
   if (targetIndex === undefined) return "?";
 
-  // 5. Das Kürzel holen (z.B. "3E") und den Buchstaben extrahieren ("E")
   const targetGroupLetter = mapping[targetIndex].replace("3", "");
-
-  // 6. Das Team finden, das aus dieser Gruppe kommt
   const finalTeam = bestThirds.find(t => t.group === targetGroupLetter);
   
   return finalTeam ? finalTeam.team : "?";

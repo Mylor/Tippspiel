@@ -32,7 +32,7 @@ const Dashboard = ({ player, onLogout }) => {
       // 3. Alle Punkte-Details aus der neuen Tabelle laden
       const { data: allPoints, error: pointsError } = await supabase
         .from("user_points_detail")
-        .select("user_id, points_total");
+        .select("player_id, points_total");
       
       if (pointsError) throw pointsError;
 
@@ -48,7 +48,7 @@ const Dashboard = ({ player, onLogout }) => {
         // Wir filtern alle Einträge aus user_points_detail, die zu diesem Spieler gehören
         // WICHTIG: Mit Number() stellen wir sicher, dass "2" === 2 ist.
         const userTotal = allPoints
-          ?.filter(entry => Number(entry.user_id) === Number(p.id)) 
+          ?.filter(entry => Number(entry.player_id) === Number(p.id)) 
           .reduce((sum, entry) => sum + Number(entry.points_total), 0) || 0;
 
         return {
