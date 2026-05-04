@@ -210,7 +210,7 @@ const KOBracket = ({
                                     teamA={teamA} teamB={teamB} isKO={true}
                                     onSave={(a, b, w) => saveTip(m.id, a, b, w)}
                                     initialGoalsA={tip?.goals_a} initialGoalsB={tip?.goals_b} initialWinner={tip?.winner}
-                                    onlyWinner={phase.id === 1 || !isActiveTippingRound} 
+                                    onlyWinner={phase.id === 5 ? false : (phase.id === 1 || !isActiveTippingRound)} 
                                   />
                                 ) : (
                                   <div style={waitingTextStyle}>Warten...</div>
