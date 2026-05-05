@@ -15,8 +15,11 @@ const GroupTable = ({
   isAdmin = false 
 }) => {
 
-  // --- LOGIK: PRÜFEN OB GLEICHSTAND VORLIEGT ---
-  const hasTie = tableData.some((teamA, i) => 
+  // --- LOGIK: PRÜFEN OB ALLE 6 SPIELE GETIPPT WURDEN ---
+  const isGroupFinished = matches.every(m => tips[m.id] !== undefined);
+
+  // --- LOGIK: NUR DIE TEAMS FILTERN, DIE TATSÄCHLICH GLEICHSTAND HABEN ---
+  const tiedTeams = tableData.filter((teamA, i) => 
     tableData.some((teamB, j) => 
       i !== j && 
       teamA.points === teamB.points && 
@@ -25,10 +28,11 @@ const GroupTable = ({
     )
   );
 
+  const hasTie = tiedTeams.length > 0;
+
   return (
     <div style={mainContainerStyle}>
-      
-      {/* --- 🔵 LINKE SEITE: SPIELLISTE --- */}
+      {/* LINKE SEITE: SPIELLISTE */}
       <div style={matchSectionStyle}>
         <div style={headerContainerStyle}>
           <h3 style={groupTitleStyle}>Gruppe {groupName}</h3>
@@ -67,7 +71,7 @@ const GroupTable = ({
           })}
       </div>
 
-      {/* --- 🟢 RECHTE SEITE: LIVE-TABELLE --- */}
+      {/* RECHTE SEITE: LIVE-TABELLE */}
       <div style={tableSectionStyle}>
         <table style={tableBaseStyle}>
           <thead>
@@ -89,11 +93,7 @@ const GroupTable = ({
                     <div style={teamCellContentStyle}><FlagIcon teamName={row.team} />{row.team}</div>
                   </td>
                   <td style={pointsTdStyle}>{row.points}</td>
-                  <td style={{ 
-                    ...tdCenterStyle, 
-                    color: row.diff < 0 ? "#e53e3e" : "#2d3748", 
-                    fontWeight: row.diff !== 0 ? "600" : "400" 
-                  }}>
+                  <td style={{ ...tdCenterStyle, color: row.diff < 0 ? "#e53e3e" : "#2d3748", fontWeight: row.diff !== 0 ? "600" : "400" }}>
                     {row.diff > 0 ? `+${row.diff}` : row.diff}
                   </td>
                   <td style={tdCenterStyle}>{row.goals}</td>
@@ -103,14 +103,20 @@ const GroupTable = ({
           </tbody>
         </table>
 
-        {/* --- 🟡 STICHWAHL-SEKTION: NUR BEI GLEICHSTAND --- */}
-        {hasTie && (
+        {/* STICHWAHL-SEKTION: NUR BEI GLEICHSTAND DER BETROFFENEN TEAMS */}
+        {isGroupFinished && hasTie && (
           <div style={swContainerStyle}>
-            <div style={swHeaderStyle}>⚠️ Gleichstand erkannt: Stichwahl nötig</div>
+            <div style={swHeaderStyle}>⚠️ Stichwahl nötig</div>
+            <p style={swInfoTextStyle}>
+              Niedrigere Zahl für besseren Platz bei Gleichstand.
+            </p>
             <div style={swGridStyle}>
-              {tableData.map(row => (
+              {tiedTeams.map(row => (
                 <div key={row.team} style={swRowStyle}>
-                  <span style={{fontSize: '0.85rem'}}>{row.team}</span>
+                  <div style={{display:'flex', alignItems:'center', gap:'8px'}}>
+                    <FlagIcon teamName={row.team} size="small" />
+                    <span style={{fontSize: '0.85rem', fontWeight: '500'}}>{row.team}</span>
+                  </div>
                   <input 
                     type="number"
                     min="1"
@@ -124,7 +130,6 @@ const GroupTable = ({
                 </div>
               ))}
             </div>
-            <p style={hintTextStyle}>* Trage 1 für den 1. Platz, 2 für den 2. Platz etc. ein, um den Gleichstand manuell aufzulösen.</p>
           </div>
         )}
       </div>
@@ -133,48 +138,6 @@ const GroupTable = ({
 };
 
 // --- STYLES ---
-
-const swContainerStyle = {
-  marginTop: "20px",
-  padding: "15px",
-  backgroundColor: "#fffaf0",
-  border: "1px solid #feebc8",
-  borderRadius: "8px"
-};
-
-const swHeaderStyle = {
-  fontSize: "0.8rem",
-  fontWeight: "bold",
-  color: "#c05621",
-  marginBottom: "10px",
-  textTransform: "uppercase"
-};
-
-const swGridStyle = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: "10px"
-};
-
-const swRowStyle = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  padding: "5px 10px",
-  backgroundColor: "#fff",
-  border: "1px solid #edf2f7",
-  borderRadius: "4px"
-};
-
-const manualRankInputStyle = {
-  width: "35px",
-  textAlign: "center",
-  border: "1px solid #cbd5e0",
-  borderRadius: "4px",
-  fontSize: "0.85rem",
-  fontWeight: "bold"
-};
-
 const mainContainerStyle = { display: "flex", gap: "80px", alignItems: "flex-start", marginBottom: "60px", fontFamily: "sans-serif" };
 const matchSectionStyle = { width: "400px" };
 const tableSectionStyle = { marginTop: "48px", flex: 1 };
@@ -199,6 +162,56 @@ const tdCenterStyle = { ...tdStyle, textAlign: "center" };
 const rankTdStyle = { ...tdStyle, color: "#718096", width: "30px" };
 const teamTdStyle = { ...tdStyle, color: "#2d3748" };
 const pointsTdStyle = { ...tdCenterStyle, fontWeight: "bold", color: "#000" };
-const hintTextStyle = { fontSize: "0.7rem", color: "#718096", marginTop: "10px", fontStyle: "italic" };
+
+const swContainerStyle = {
+  marginTop: "16px",
+  padding: "12px",
+  backgroundColor: "#fffaf0",
+  border: "1px solid #feebc8",
+  borderRadius: "8px",
+  width: "260px"
+};
+
+const swHeaderStyle = {
+  fontSize: "0.9rem",
+  fontWeight: "bold",
+  color: "#c05621",
+  marginBottom: "4px"
+};
+
+const swInfoTextStyle = {
+  fontSize: "0.75rem",
+  color: "#718096",
+  fontStyle: "italic",
+  marginBottom: "10px",
+  lineHeight: "1.2"
+};
+
+const swGridStyle = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "4px"
+};
+
+const swRowStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  padding: "6px 10px",
+  backgroundColor: "#ffffff",
+  border: "1px solid #edf2f7",
+  borderRadius: "6px"
+};
+
+const manualRankInputStyle = {
+  width: "40px",
+  padding: "4px",
+  textAlign: "center",
+  border: "1px solid #cbd5e0",
+  borderRadius: "4px",
+  fontSize: "0.85rem",
+  fontWeight: "bold",
+  color: "#2d3748"
+};
 
 export default GroupTable;

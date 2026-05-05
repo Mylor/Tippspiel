@@ -25,26 +25,29 @@ export function calculateTable(groupMatches, currentTips) {
 }
 
 export function calculateFIFADataTable(groupMatches, tips, manualRanks = {}) {
-  // Wir nutzen deine bestehende Logik für die Grundwerte
+  // 1. Grundwerte berechnen (Punkte, Tore, Gegentore)
   let table = calculateTable(groupMatches, tips);
 
-  // Jetzt sortieren wir das Ergebnis nach FIFA-Kriterien
+  // 2. Sortieren nach sportlichen Kriterien, dann Stichwahl
   table.sort((a, b) => {
-    // 1. Punkte (Höher ist besser)
-    if (b.pts !== a.pts) return b.pts - a.pts;
+    // A. Punkte (PKT) - Absteigend
+    if (b.points !== a.points) return b.points - a.points;
 
-    // 2. Tordifferenz (Höher ist besser)
+    // B. Tordifferenz (DIFF) - Absteigend
     if (b.diff !== a.diff) return b.diff - a.diff;
 
-    // 3. Erzielte Tore (Höher ist besser)
-    if (b.goalsFor !== a.goalsFor) return b.goalsFor - a.goalsFor;
+    // C. Erzielte Tore (TORE) - Absteigend
+    if (b.goals !== a.goals) return b.goals - a.goals;
 
-    // 4. Stichwahl / Manueller Rang (Niedrigerer Wert ist besser, z.B. Platz 1 vor Platz 2)
-    // Wir nehmen 99 als Standardwert, falls nichts eingetragen wurde
-    const rankA = manualRanks[a.team] || 99;
-    const rankB = manualRanks[b.team] || 99;
+    // D. Stichwahl (Manueller Rang) - Aufsteigend (1 ist besser als 2)
+    // Wir prüfen, ob überhaupt ein Rang existiert, bevor wir vergleichen
+    const rankA = manualRanks[a.team] !== undefined && manualRanks[a.team] !== null ? manualRanks[a.team] : 99;
+    const rankB = manualRanks[b.team] !== undefined && manualRanks[b.team] !== null ? manualRanks[b.team] : 99;
     
-    return rankA - rankB; 
+    if (rankA !== rankB) return rankA - rankB;
+
+    // E. Letzter Notnagel: Alphabet (damit die Liste stabil bleibt)
+    return a.team.localeCompare(b.team);
   });
 
   return table;

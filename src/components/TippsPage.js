@@ -3,7 +3,6 @@ import { supabase } from "../supabaseClient";
 import { getBestThirds } from "../Utils/calcTable";
 
 // --- LOGIK & UTILS ---
-// Wichtig: Stelle sicher, dass calculateFIFADataTable in deiner tournamentLogic.js existiert!
 import { calculateTable, calculateFIFADataTable } from "../logic/tournamentLogic";
 import { getTopPosition, resolveSlot, getTeamFromPrevious } from "../logic/koLogic";
 
@@ -45,11 +44,12 @@ const winnerSubTextStyle = { fontSize: "0.65rem", color: "#666", fontWeight: "no
 function TippsPage({ player, phaseId, context, isAdmin }) {
   const [matches, setMatches] = useState([]);
   const [tips, setTips] = useState({});
-  const [manualRanks, setManualRanks] = useState({}); // NEU: State für Stichwahl-Sortierung
+  const [manualRanks, setManualRanks] = useState({});
   const [phase, setPhase] = useState(null);
   const [treeHeight, setTreeHeight] = useState(800);
   const groupRef = useRef(null);
 
+  // --- 1. DATA FETCHING ---
   useEffect(() => {
     if (player?.id && phaseId) {
       fetchMatches();
@@ -67,10 +67,6 @@ function TippsPage({ player, phaseId, context, isAdmin }) {
     }
   }, [matches, tips, phaseId]);
 
-  if (!player || !phaseId) {
-    return <div style={{ padding: "20px" }}>Lade Benutzerdaten...</div>;
-  }
-
   async function fetchMatches() {
     const { data } = await supabase.from("match").select("*");
     setMatches(data || []);
@@ -78,18 +74,12 @@ function TippsPage({ player, phaseId, context, isAdmin }) {
 
   async function fetchTips() {
     if (!player?.id || !phaseId) return;
-    
-    // 1. Normale Tipps
     const { data: normalData } = await supabase.from("tip").select("*").eq("player_id", player.id).eq("phase_id", phaseId);
-    
-    // 2. Matrix Tipps (für Phase 5)
     let matrixData = [];
     if (Number(phaseId) === 5) {
       const { data } = await supabase.from("tip_final_matrix").select("*").eq("player_id", player.id);
       if (data) matrixData = data;
     }
-    
-    // 3. Manuelle Ränge (Stichwahl bei absolutem Gleichstand)
     const { data: rankData } = await supabase.from("tip_manual_rank").select("*").eq("player_id", player.id).eq("phase_id", phaseId);
 
     const map = {};
@@ -108,36 +98,7 @@ function TippsPage({ player, phaseId, context, isAdmin }) {
     setPhase(data);
   }
 
-  // --- NEUE FUNKTIONEN FÜR MANUELLE RÄNGE ---
-  async function saveManualRank(teamName, rank) {
-    if (phase?.is_submitted) return;
-    const val = rank === "" ? null : Number(rank);
-    
-    await supabase.from("tip_manual_rank").upsert([{
-      player_id: player.id,
-      phase_id: phaseId,
-      team_name: teamName,
-      manual_rank: val
-    }], { onConflict: 'player_id, phase_id, team_name' });
-
-    setManualRanks(prev => ({ ...prev, [teamName]: val }));
-  }
-
-  async function resetGroup(groupName) {
-    if (phase?.is_submitted) return;
-
-    const groupMatches = matches.filter(m => m.group_name === groupName);
-    const matchIds = groupMatches.map(m => m.id);
-    const teamsInGroup = [...new Set(groupMatches.flatMap(m => [m.team_a, m.team_b]))];
-
-    // Löscht sowohl Tipps als auch die manuellen Entscheidungen
-    await supabase.from("tip").delete().eq("player_id", player.id).in("match_id", matchIds);
-    await supabase.from("tip_manual_rank").delete().eq("player_id", player.id).eq("phase_id", phaseId).in("team_name", teamsInGroup);
-
-    fetchTips(); 
-  }
-
-  // --- HELPER LOGIK ---
+  // --- 2. HILFSFUNKTIONEN ---
   const getWinningSide = (tip) => {
     if (!tip) return null;
     const gA = (tip.goals_a !== null && tip.goals_a !== "") ? Number(tip.goals_a) : null;
@@ -176,6 +137,7 @@ function TippsPage({ player, phaseId, context, isAdmin }) {
     return mapping[teamName] || null;
   };
 
+  // --- 3. SPEICHER-LOGIK ---
   async function saveTip(matchId, goalsA, goalsB, winner) {
     if (phase?.is_submitted) return;
     const gA = (goalsA !== null && goalsA !== "") ? Number(goalsA) : null;
@@ -198,9 +160,53 @@ function TippsPage({ player, phaseId, context, isAdmin }) {
         goals_a: gA, goals_b: gB, winner: calculatedWinner,
       }], { onConflict: 'player_id, match_id, phase_id' });
     }
-    
-    // UI sofort aktualisieren
     setTips(prev => ({ ...prev, [matchId]: { goals_a: gA, goals_b: gB, winner: calculatedWinner } }));
+  }
+
+  async function saveManualRank(teamName, rank) {
+    if (phase?.is_submitted) return;
+    const val = rank === "" ? null : Number(rank);
+    await supabase.from("tip_manual_rank").upsert([{
+      player_id: player.id, phase_id: phaseId, team_name: teamName, manual_rank: val
+    }], { onConflict: 'player_id, phase_id, team_name' });
+    setManualRanks(prev => ({ ...prev, [teamName]: val }));
+  }
+
+  async function saveGroupRankingsToDB(groupName, tableData, allBestThirds) {
+    if (phase?.is_submitted || !tableData || tableData.length < 4) return;
+    const bestThirdsNames = allBestThirds.slice(0, 8).map(t => t.team || t.name);
+    const record = {
+      player_id: player.id,
+      group_name: groupName,
+      rank_1: tableData[0].team,
+      rank_2: tableData[1].team,
+      rank_3: tableData[2].team,
+      rank_4: tableData[3].team,
+      reached_ko: [tableData[0].team, tableData[1].team],
+      dropped_out: [tableData[3].team],
+      reached_ko_best_thirds: bestThirdsNames,
+      created_at: new Date().toISOString()
+    };
+    const { error } = await supabase.from("user_prognosis_group").upsert([record], { onConflict: 'player_id, group_name' });
+    if (error) console.error(`Sync Fehler Gruppe ${groupName}:`, error);
+  }
+
+  async function resetGroup(groupName) {
+    if (phase?.is_submitted) return;
+    const groupMatches = matches.filter(m => m.group_name === groupName);
+    const groupMatchIds = groupMatches.map(m => m.id);
+    const teamsInGroup = [...new Set(groupMatches.flatMap(m => [m.team_a, m.team_b]))];
+    const koMatchIds = matches.filter(m => m.stage === "ko").map(m => m.id);
+    try {
+      await supabase.from("tip").delete().eq("player_id", player.id).in("match_id", groupMatchIds);
+      await supabase.from("tip_manual_rank").delete().eq("player_id", player.id).eq("phase_id", phaseId).in("team_name", teamsInGroup);
+      if (koMatchIds.length > 0) {
+        await supabase.from("tip").delete().eq("player_id", player.id).in("match_id", koMatchIds);
+      }
+      fetchTips(); 
+    } catch (error) {
+      console.error("Fehler beim Reset:", error);
+    }
   }
 
   async function deleteKORound(stageOrder, pId) {
@@ -220,6 +226,50 @@ function TippsPage({ player, phaseId, context, isAdmin }) {
     await supabase.from("tip_final_matrix").delete().eq("player_id", player.id).in("matrix_key", keysToDelete);
     fetchTips();
   }
+
+  // --- 4. ZENTRALE BERECHNUNGEN (MÜSSEN VOR DEM EFFECT STEHEN) ---
+  const grouped = {};
+  matches.filter(m => m.stage === "group").forEach(m => {
+    if (!grouped[m.group_name]) grouped[m.group_name] = [];
+    grouped[m.group_name].push(m);
+  });
+
+  const allGroupsArray = Object.keys(grouped).map(name => ({ 
+    id: name, 
+    teams: calculateFIFADataTable(grouped[name], tips, manualRanks) 
+  }));
+
+  const bestThirds = getBestThirds(allGroupsArray, manualRanks);
+
+  // --- 5. AUTOMATISCHER SYNC EFFECT ---
+  useEffect(() => {
+    if (Number(phaseId) === 1 && Object.keys(tips).length > 0) {
+      allGroupsArray.forEach(group => {
+        const groupMatchIds = grouped[group.id]?.map(m => m.id) || [];
+        const isComplete = groupMatchIds.length > 0 && groupMatchIds.every(id => tips[id]);
+        if (isComplete) {
+          saveGroupRankingsToDB(group.id, group.teams, bestThirds);
+        }
+      });
+    }
+  }, [tips, manualRanks, bestThirds, allGroupsArray, phaseId]);
+
+  // --- 6. RENDER LOGIK & REST ---
+  const groupResults = {};
+  allGroupsArray.forEach(g => { groupResults[g.id] = g.teams.map(t => t.team); });
+
+  const koMatches = matches.filter(m => m.stage === "ko").sort((a,b) => a.stage_order - b.stage_order || a.ko_order - b.ko_order);
+  const koByRound = {};
+  koMatches.forEach(m => {
+    if (!koByRound[m.stage_order]) koByRound[m.stage_order] = [];
+    koByRound[m.stage_order].push(m);
+  });
+
+  const tournamentContext = { groups: groupResults, thirdPlaces: bestThirds.slice(0, 8), tips, phaseId: phaseId };
+  const currentSpacing = phase ? (PHASE_SPACING[phase.id] || 70) : 70;
+  const startIdxOfPhase = phase ? (phase.id <= 2 ? 0 : phase.id - 2) : 0;
+  const treeHeightCalculated = treeHeight;
+  const topOffset = getTopPosition(startIdxOfPhase, 0, treeHeightCalculated, currentSpacing);
 
   const renderMatrixTeamRow = (teamName, side, isFirst, winningSide) => {
     const isWinner = winningSide === side;
@@ -338,34 +388,7 @@ function TippsPage({ player, phaseId, context, isAdmin }) {
     );
   };
 
-  // --- HAUPT LOGIK FÜR TURNIERBAUM & TABELLEN ---
-  const grouped = {};
-  matches.filter(m => m.stage === "group").forEach(m => {
-    if (!grouped[m.group_name]) grouped[m.group_name] = [];
-    grouped[m.group_name].push(m);
-  });
-
-  // Zentrale Berechnung aller Tabellen (Redundanz entfernt)
-  const allGroupsArray = Object.keys(grouped).map(name => ({ 
-    id: name, 
-    teams: calculateFIFADataTable(grouped[name], tips, manualRanks) 
-  }));
-
-  const bestThirds = getBestThirds(allGroupsArray);
-  const groupResults = {};
-  allGroupsArray.forEach(g => { groupResults[g.id] = g.teams.map(t => t.team); });
-
-  const koMatches = matches.filter(m => m.stage === "ko").sort((a,b) => a.stage_order - b.stage_order || a.ko_order - b.ko_order);
-  const koByRound = {};
-  koMatches.forEach(m => {
-    if (!koByRound[m.stage_order]) koByRound[m.stage_order] = [];
-    koByRound[m.stage_order].push(m);
-  });
-
-  const tournamentContext = { groups: groupResults, thirdPlaces: bestThirds.slice(0, 8), tips, phaseId: phaseId };
-  const currentSpacing = phase ? (PHASE_SPACING[phase.id] || 70) : 70;
-  const startIdxOfPhase = phase ? (phase.id <= 2 ? 0 : phase.id - 2) : 0;
-  const topOffset = getTopPosition(startIdxOfPhase, 0, treeHeight, currentSpacing);
+  if (!player || !phaseId) return <div style={{ padding: "20px" }}>Lade Benutzerdaten...</div>;
 
   return (
     <div style={{ padding: "20px", width: "100%", overflowX: "auto" }}>
@@ -391,7 +414,12 @@ function TippsPage({ player, phaseId, context, isAdmin }) {
                   </div>
                 ))}
               </div>
-              <BestThirdsTable teams={bestThirds} />
+              <BestThirdsTable 
+                teams={bestThirds} 
+                manualRanks={manualRanks} 
+                onSaveManualRank={saveManualRank} // <-- WICHTIG: Prüfe, ob 'saveManualRank' hier existiert!
+                isSubmitted={phase?.is_submitted}
+              />
             </div>
           </div>
         )}
