@@ -1,135 +1,79 @@
 import React from 'react';
 import TipInput from './TipInput';
+import { FlagIcon } from '../Utils/teamUtils'; 
+import { BRACKET_STYLES, PHASE_HEIGHTS } from '../Utils/uiConstants';
 
-/**
- * KOBracket: Visualisiert den Turnierbaum ab der KO-Phase.
- * Berechnet dynamisch Linienverbindungen und Team-Platzierungen.
- */
+const BOX_HEIGHT = 135;
+
 const KOBracket = ({ 
   koByRound, tips, phase, roundNames, treeHeight, getTopPosition, 
   getTeamFromPrevious, resolveSlot, context, KO_STRUCTURE, 
   saveTip, deleteKORound, isAdmin 
 }) => {
 
-  // --- INITIALISIERUNG & HELFER ---
+  if (!phase) return <div style={BRACKET_STYLES.loading}>Lade Turnierdaten...</div>;
 
-  if (!phase) {
-    return <div style={loadingStyle}>Lade Turnierdaten...</div>;
-  }
-
-  // Fallback für Rundennamen
-  const safeRoundNames = roundNames || {
-    1: "Sechzehntelfinale", 2: "Achtelfinale", 3: "Viertelfinale", 4: "Halbfinale", 5: "Finale"
+  const safeRoundNames = roundNames || { 
+    1: "Sechzehntelfinale", 2: "Achtelfinale", 3: "Viertelfinale", 4: "Halbfinale", 5: "Finale" 
   };
-
-  // Hilfsfunktion für Flaggen-Ländercodes
-  const getCountryCode = (teamName) => {
-    const mapping = {
-      "Mexiko": "mx", "Südafrika": "za", "Südkorea": "kr", "Tschechien": "cz",
-      "Kanada": "ca", "Bosnien": "ba", "USA": "us", "Paraguay": "py",
-      "Katar": "qa", "Schweiz": "ch", "Brasilien": "br", "Marokko": "ma",
-      "Haiti": "ht", "Schottland": "gb-sct", "Australien": "au", "Türkei": "tr",
-      "Deutschland": "de", "Curaçao": "cw", "Niederlande": "nl", "Japan": "jp",
-      "Elfenbeinküste": "ci", "Ecuador": "ec", "Schweden": "se", "Tunesien": "tn",
-      "Spanien": "es", "Kap Verde": "cv", "Belgien": "be", "Ägypten": "eg",
-      "Saudi-Arabien": "sa", "Uruguay": "uy", "Iran": "ir", "Neuseeland": "nz",
-      "Frankreich": "fr", "Senegal": "sn", "Irak": "iq", "Norwegen": "no",
-      "Argentinien": "ar", "Algerien": "dz", "Österreich": "at", "Jordanien": "jo",
-      "Portugal": "pt", "Kongo": "cd", "England": "gb-eng", "Kroatien": "hr",
-      "Ghana": "gh", "Panama": "pa", "Usbekistan": "uz", "Kolumbien": "co"
-    };
-    return mapping[teamName] || null;
-  };
-
-  const BOX_HEIGHT = 135; 
-  const phaseHeights = { 1: "4000px", 2: "3300px", 3: "1650px", 4: "900px", 5: "600px" };
-  const currentMinHeight = phase ? phaseHeights[phase.id] : "100%";
-  const viewportStyle = { minHeight: currentMinHeight, padding: "20px", backgroundColor: "#fff", display: "inline-block", verticalAlign: "top" };
-
+  
   const startIdxOfPhase = phase.id <= 2 ? 0 : phase.id - 2;
-  const treeContainerStyle = (treeHeight) => ({ position: "relative", height: `${treeHeight}px`, backgroundColor: "#fff", width: "fit-content", minWidth: "100%"});
 
-  // --- INTERNE RENDER-FUNKTIONEN ---
-
-  const renderTeamRow = (teamName, side, isFirst, winningSide) => {
+  // Interne Helper-Komponente für die Team-Zeilen (nutzt jetzt BRACKET_STYLES)
+  const TeamRow = ({ teamName, side, isFirst, winningSide }) => {
     const isWinner = winningSide === side;
     return (
-      <div style={{ 
-        ...teamRowBaseStyle, 
-        background: isWinner ? "#f0fff4" : "transparent", 
-        borderBottom: isFirst ? "1px solid #f1f5f9" : "none",
-        position: "relative"
-      }}>
-        <div style={teamInfoFlexStyle}>
-          {teamName !== "?" ? (
-            <div style={flagWrapperStyle}>
-              <img 
-                src={`https://flagcdn.com/w40/${getCountryCode(teamName)}.png`} 
-                alt="" 
-                style={flagImgStyle} 
-              />
-            </div>
-          ) : (
-            <div style={flagPlaceholderStyle} />
-          )}
+      <div style={BRACKET_STYLES.teamRow(isWinner, isFirst)}>
+        <div style={BRACKET_STYLES.teamInfoFlex}>
+          <FlagIcon teamName={teamName} />
           <span style={{ 
-            ...teamNameTextStyle, 
+            ...BRACKET_STYLES.teamNameText, 
             fontWeight: isWinner ? "700" : "400", 
             color: teamName === "?" ? "#cbd5e0" : "#1e293b" 
           }}>
             {teamName}
           </span>
         </div>
-        {isWinner && <span style={checkMarkStyle}>✓</span>}
+        {isWinner && <span style={BRACKET_STYLES.checkMark}>✓</span>}
       </div>
     );
   };
 
   return (
-    <div style={viewportStyle}>
+    <div style={BRACKET_STYLES.viewport(PHASE_HEIGHTS[phase.id])}>
       
-      {/* 🔄 RESET-HEADER */}
-      <div style={headerRowStyle}>
+      {/* HEADER: Runden-Namen und Reset-Buttons */}
+      <div style={BRACKET_STYLES.headerRow}>
         {Object.keys(koByRound)
           .sort((a, b) => Number(a) - Number(b))
-          .filter((roundKey) => (Number(roundKey) - 1) >= startIdxOfPhase)
-          .map((round) => (
-            <div key={round} style={headerColumnStyle}>
-              <span style={roundTitleStyle}>
-                {Number(round) === 5 ? "Finale" : safeRoundNames[round]}
-              </span>
-              
-              {!phase?.is_submitted && !isAdmin && ( 
-                <button 
-                  onClick={() => deleteKORound(Number(round), phase?.id)}
-                  style={resetButtonStyle}
-                >
-                  Reset
-                </button>
-              )}
-            </div>
-          ))}
+          .filter(r => (Number(r)-1) >= startIdxOfPhase)
+          .map(round => (
+          <div key={round} style={BRACKET_STYLES.headerColumn}>
+            <span style={BRACKET_STYLES.roundTitle}>{Number(round) === 5 ? "Finale" : safeRoundNames[round]}</span>
+            {(!phase?.is_submitted || isAdmin) && (
+              <button onClick={() => deleteKORound(Number(round), phase.id)} style={BRACKET_STYLES.resetButton}>Reset</button>
+            )}
+          </div>
+        ))}
       </div>
 
-      {/* 🌲 DER BAUM */}
-      <div style={ treeContainerStyle(treeHeight)}>
+      {/* DER TURNIERBAUM */}
+      <div style={BRACKET_STYLES.treeContainer(treeHeight)}>
         {Object.keys(koByRound)
           .sort((a, b) => Number(a) - Number(b))
-          .filter((roundKey) => (Number(roundKey) - 1) >= startIdxOfPhase)
-          .map((round, visibleRoundIndex) => {
+          .filter(r => (Number(r)-1) >= startIdxOfPhase)
+          .map((round, visibleIdx) => {
             const actualRoundIdx = Number(round) - 1;
             const isActiveTippingRound = actualRoundIdx === startIdxOfPhase;
 
             return (
               <div key={round}>
                 {koByRound[round].map((m, matchIndex) => {
-                  // SICHERHEIT: Falls tips undefined ist, Fallback auf leeres Objekt
                   const tip = (tips && tips[m.id]) ? tips[m.id] : null;
-                  
                   const currentTop = getTopPosition(actualRoundIdx, matchIndex);
                   const nextTop = getTopPosition(actualRoundIdx + 1, Math.floor(matchIndex / 2));
 
-                  // --- TEAM-HERKUNFT ---
+                  // Team-Herkunft Logik aus deinem Original
                   let teamA, teamB;
                   if (phase.id > 1 && isActiveTippingRound) {
                     teamA = m.team_a || "?";
@@ -143,12 +87,11 @@ const KOBracket = ({
                     teamB = getTeamFromPrevious(actualRoundIdx, matchIndex, "B");
                   }
 
-                  // --- GEWINNER ERMITTELN (SICHERER CHECK) ---
+                  // Gewinner-Ermittlung Logik aus deinem Original
                   const winningSide = (() => {
                     if (!tip) return null;
                     const gA = (tip.goals_a !== null && tip.goals_a !== undefined && tip.goals_a !== "") ? Number(tip.goals_a) : null;
                     const gB = (tip.goals_b !== null && tip.goals_b !== undefined && tip.goals_b !== "") ? Number(tip.goals_b) : null;
-                    
                     if (gA !== null && gB !== null) {
                       if (gA > gB) return "1";
                       if (gB > gA) return "2";
@@ -157,43 +100,31 @@ const KOBracket = ({
                   })();
 
                   return (
-                    <div key={m.id} style={{ 
-                      position: "absolute", 
-                      top: `${currentTop}px`, 
-                      left: `${visibleRoundIndex * 300}px`, 
-                      height: `${BOX_HEIGHT}px` 
-                    }}>
-                      <div style={matchLabelStyle}>
+                    <div key={m.id} style={{ position: "absolute", top: `${currentTop}px`, left: `${visibleIdx * 300}px`, height: `${BOX_HEIGHT}px` }}>
+                      <div style={BRACKET_STYLES.matchLabel}>
                         {actualRoundIdx === 4 ? (matchIndex === 1 ? "Spiel um Platz 3" : "Finale") : `${safeRoundNames[round]} ${matchIndex + 1}`}
                       </div>
 
-                      <div style={matchBoxStyle}>
-                        {renderTeamRow(teamA, "1", true, winningSide)}
-                        {renderTeamRow(teamB, "2", false, winningSide)}
-
-                        <div style={tipContainerStyle}>
+                      <div style={BRACKET_STYLES.matchBox}>
+                        <TeamRow teamName={teamA} side="1" isFirst winningSide={winningSide} />
+                        <TeamRow teamName={teamB} side="2" isFirst={false} winningSide={winningSide} />
+                        
+                        <div style={BRACKET_STYLES.tipContainer}>
                           {isAdmin ? (
                             <TipInput 
-                              teamA={teamA} 
-                              teamB={teamB} 
-                              isKO={true}
-                              onSave={(a, b, w) => saveTip(m.id, a, b, w)}
-                              initialGoalsA={tip?.goals_a} 
-                              initialGoalsB={tip?.goals_b} 
-                              initialWinner={tip?.winner}
+                              teamA={teamA} teamB={teamB} isKO onSave={(a,b,w) => saveTip(m.id,a,b,w)} 
+                              initialGoalsA={tip?.goals_a} initialGoalsB={tip?.goals_b} initialWinner={tip?.winner} 
                               onlyWinner={false} 
                             />
                           ) : (
                             !phase?.is_submitted ? (
                               tip ? (
-                                <div style={savedTipDisplayStyle}>
-                                  {/* SICHERER ZUGRIFF: Nullish Coalescing für goals_a/b */}
+                                <div style={BRACKET_STYLES.savedTipDisplay}>
                                   {(tip.goals_a !== null && tip.goals_a !== undefined && tip.goals_a !== "") 
                                     ? `${tip.goals_a} : ${tip.goals_b}` 
-                                    : (String(tip.winner) === "1" ? teamA : teamB) 
-                                  }
+                                    : `Sieger: ${String(tip.winner) === "1" ? teamA : teamB}`}
                                   {tip.goals_a !== null && tip.goals_a !== undefined && tip.goals_a !== "" && Number(tip.goals_a) === Number(tip.goals_b) && (
-                                    <span style={winnerSubTextStyle}>
+                                    <span style={{ fontSize: "0.65rem", color: "#666", fontWeight: "normal" }}>
                                       Sieger: {String(tip.winner) === "1" ? teamA : teamB}
                                     </span>
                                   )}
@@ -201,18 +132,15 @@ const KOBracket = ({
                               ) : (
                                 (teamA !== "?" && teamB !== "?") ? (
                                   <TipInput 
-                                    teamA={teamA} teamB={teamB} isKO={true}
-                                    onSave={(a, b, w) => saveTip(m.id, a, b, w)}
-                                    initialGoalsA={tip?.goals_a} initialGoalsB={tip?.goals_b} initialWinner={tip?.winner}
+                                    teamA={teamA} teamB={teamB} isKO onSave={(a,b,w) => saveTip(m.id,a,b,w)} 
                                     onlyWinner={phase.id === 5 ? false : (phase.id === 1 || !isActiveTippingRound)} 
                                   />
                                 ) : (
-                                  <div style={waitingTextStyle}>Warten...</div>
+                                  <div style={{ fontSize: "0.65rem", color: "#94a3b8", textAlign: "center" }}>Warten...</div>
                                 )
                               )
                             ) : (
-                              <div style={finalResultStyle}>
-                                {/* SICHERER ZUGRIFF im Read-Only Modus */}
+                              <div style={BRACKET_STYLES.finalResult}>
                                 {tip?.goals_a !== null && tip?.goals_a !== undefined && tip?.goals_a !== "" 
                                   ? `${tip.goals_a} : ${tip.goals_b}` 
                                   : (tip?.winner ? (Number(tip.winner) === 1 ? teamA : teamB) : "-")}
@@ -222,16 +150,17 @@ const KOBracket = ({
                         </div>
                       </div>
 
+                      {/* Dynamische Linien */}
                       {actualRoundIdx < 4 && (
                         <>
-                          <div style={horizontalLineStyle} />
+                          <div style={BRACKET_STYLES.lineHorizontal} />
                           <div style={{ 
-                            ...verticalLineBaseStyle,
+                            ...BRACKET_STYLES.lineVertical,
                             top: matchIndex % 2 === 0 ? "82px" : `calc(82px - ${Math.abs(nextTop - currentTop)}px)`, 
                             height: `${Math.abs(nextTop - currentTop)}px`, 
                           }} />
                           {matchIndex % 2 === 0 && (
-                            <div style={{ ...horizontalLineStyle, top: `${(nextTop - currentTop) + 82}px`, right: "-60px" }} />
+                            <div style={{ ...BRACKET_STYLES.lineHorizontal, top: `${(nextTop - currentTop) + 82}px`, right: "-60px" }} />
                           )}
                         </>
                       )}
@@ -245,28 +174,5 @@ const KOBracket = ({
     </div>
   );
 };
-
-// --- STYLES ---
-const loadingStyle = { padding: "20px", color: "#666" };
-const headerRowStyle = { display: "flex", marginBottom: "60px" };
-const headerColumnStyle = { width: "240px", marginRight: "60px", textAlign: "center", display: "flex", flexDirection: "column", gap: "8px" };
-const roundTitleStyle = { fontWeight: "bold", fontSize: "1rem", color: "#2d3748" };
-const resetButtonStyle = { padding: "4px 8px", fontSize: "0.75rem", backgroundColor: "#fff", border: "1px solid #ccc", borderRadius: "4px", cursor: "pointer", color: "#666", zIndex: 10 };
-const matchLabelStyle = { fontSize: "0.65rem", fontWeight: "bold", color: "#878b8e", textTransform: "uppercase", marginBottom: "4px" };
-const matchBoxStyle = { width: "240px", minHeight: "115px", background: "#fff", borderRadius: "10px", boxShadow: "0 4px 12px rgba(0,0,0,0.05)", border: "1px solid #e2e8f0", display: "flex", flexDirection: "column", overflow: "hidden" };
-const teamRowBaseStyle = { padding: "10px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", height: "40px" };
-const teamInfoFlexStyle = { display: "flex", alignItems: "center", gap: "10px" };
-const teamNameTextStyle = { fontSize: "0.85rem" };
-const checkMarkStyle = { color: "#48bb78", fontWeight: "bold" };
-const flagWrapperStyle = { width: "22px", height: "16px", overflow: "hidden", borderRadius: "2px", border: "1px solid #eee", display: "flex", alignItems: "center" };
-const flagImgStyle = { width: "100%", height: "auto" };
-const flagPlaceholderStyle = { width: "22px", height: "16px", backgroundColor: "#f1f5f9", borderRadius: "2px" };
-const tipContainerStyle = { padding: "6px 10px", background: "#f8fafc", borderTop: "1px solid #e2e8f0" };
-const savedTipDisplayStyle = { fontSize: "0.9rem", textAlign: "center", fontWeight: "bold", color: "#1a73e8", display: "flex", flexDirection: "column", gap: "2px" };
-const winnerSubTextStyle = { fontSize: "0.65rem", color: "#666", fontWeight: "normal" };
-const waitingTextStyle = { fontSize: "0.65rem", color: "#94a3b8", textAlign: "center" };
-const finalResultStyle = { fontSize: "0.75rem", textAlign: "center", fontWeight: "bold", color: "#475569" };
-const horizontalLineStyle = { position: "absolute", top: "82px", right: "-30px", width: "30px", height: "2px", background: "#cbd5e0" };
-const verticalLineBaseStyle = { position: "absolute", right: "-30px", width: "2px", background: "#cbd5e0" };
 
 export default KOBracket;

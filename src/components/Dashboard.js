@@ -1,5 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabaseClient";
+
+// --- IMPORT CONSTANTS & STYLES ---
+import { DASHBOARD_STYLES, getTabButtonStyle, getPhaseButtonStyle } from "../Utils/uiConstants";
+
+// --- COMPONENTS ---
 import TippsPage from "./TippsPage";
 import AdminResultsPage from "./AdminResultsPage"; 
 import AdminControlCenter from "./AdminControlCenter";
@@ -12,15 +17,12 @@ const Dashboard = ({ player, onLogout }) => {
   const [allPhases, setAllPhases] = useState([]); 
   const [loading, setLoading] = useState(true);
 
-  // Änderung 1: useEffect nur beim Mounten ausführen (initialer Load)
   useEffect(() => {
     fetchDashboardData();
   }, []);
 
   async function fetchDashboardData() {
-    // Wenn wir schon Phasen haben, ist es ein Hintergrund-Update -> kein Full-Page-Loading
     if (allPhases.length === 0) setLoading(true);
-
     try {
       const [configRes, phasesRes, matchesRes, pointsRes, playersRes] = await Promise.all([
         supabase.from("system_config").select("*").single(),
@@ -30,14 +32,10 @@ const Dashboard = ({ player, onLogout }) => {
         supabase.from("player").select("id, name, display_name")
       ]);
 
-      if (pointsRes.error) throw pointsRes.error;
-      
-      // Änderung 2: Sofortige State-Updates für die Sidebar
       setAllPhases(phasesRes.data || []);
       setSystemConfig(configRes.data);
       setNextMatches(matchesRes.data || []);
 
-      // Ranking Logik bleibt gleich...
       const players = playersRes.data || [];
       const allPoints = pointsRes.data || [];
       const calculatedRanking = players.map(p => {
@@ -48,7 +46,6 @@ const Dashboard = ({ player, onLogout }) => {
       });
       calculatedRanking.sort((a, b) => b.points - a.points);
       setRanking(calculatedRanking);
-
     } catch (error) {
       console.error("Fehler beim Laden:", error);
     } finally {
@@ -58,86 +55,70 @@ const Dashboard = ({ player, onLogout }) => {
 
   if (loading) return <div style={{ padding: "20px" }}>Dashboard wird geladen...</div>;
 
+  const displayName = player.display_name && player.display_name !== "EMPTY" ? player.display_name : player.name;
+
   return (
-    <div style={layoutStyle}>
+    <div style={DASHBOARD_STYLES.layout}>
       
       {/* 🟣 SIDEBAR */}
-      <aside style={sidebarStyle}>
-        <div style={profileBoxStyle}>
-          <h2 style={{ fontSize: "1.2rem", margin: "0 0 5px 0" }}>
-            {player.display_name && player.display_name !== "EMPTY" ? player.display_name : player.name}
-          </h2>
-          <span style={badgeStyle}>{player.is_admin ? "Administrator" : "Spieler"}</span>
+      <aside style={DASHBOARD_STYLES.sidebar}>
+        <div style={DASHBOARD_STYLES.profileBox}>
+          <h2 style={{ fontSize: "1.2rem", margin: "0 0 5px 0" }}>{displayName}</h2>
+          <span style={DASHBOARD_STYLES.badge}>{player.is_admin ? "Administrator" : "Spieler"}</span>
         </div>
 
-        <nav style={navStyle}>
-          <button 
-            onClick={() => setActivePhase("ranking")} 
-            style={tabButtonStyle(activePhase === "ranking")}
-          >
+        <nav style={DASHBOARD_STYLES.nav}>
+          <button onClick={() => setActivePhase("ranking")} style={getTabButtonStyle(activePhase === "ranking")}>
             🏠 Startseite
           </button>
           
-          <hr style={dividerStyle} />
-          <p style={sectionHeaderStyle}>Tipp-Runden</p>
+          <hr style={DASHBOARD_STYLES.divider} />
+          <p style={DASHBOARD_STYLES.sectionHeader}>Tipp-Runden</p>
           
-          {/* Dynamisch generierte Buttons basierend auf allPhases - GEFILTERT NACH AKTIV */}
-          {allPhases
-            .filter(p => p.is_active === true) // Nur sichtbare Phasen zeigen
-            .map((p) => (
-              <button 
-                key={p.id} 
-                onClick={() => setActivePhase(p.id)} 
-                style={phaseButtonStyle(activePhase === p.id, systemConfig?.current_phase_id === p.id)}
-              >
-                Phase {p.id} {systemConfig?.current_phase_id === p.id}
-                {p.is_submitted && " 🔒"} 
-              </button>
-            ))}
+          {allPhases.filter(p => p.is_active).map((p) => (
+            <button 
+              key={p.id} 
+              onClick={() => setActivePhase(p.id)} 
+              style={getPhaseButtonStyle(activePhase === p.id, systemConfig?.current_phase_id === p.id)}
+            >
+              Phase {p.id} {p.is_submitted && " 🔒"} 
+            </button>
+          ))}
 
           {player.is_admin && (
             <>
-              <hr style={dividerStyle} />
-              <p style={sectionHeaderStyle}>Admin-Bereich</p>
-              
-              <button 
-                onClick={() => setActivePhase("admin_control")} 
-                style={phaseButtonStyle(activePhase === "admin_control", false)}
-              >
+              <hr style={DASHBOARD_STYLES.divider} />
+              <p style={DASHBOARD_STYLES.sectionHeader}>Admin-Bereich</p>
+              <button onClick={() => setActivePhase("admin_control")} style={getPhaseButtonStyle(activePhase === "admin_control", false)}>
                 🛡️ Schaltzentrale
               </button>
-
-              <button 
-                onClick={() => setActivePhase("admin_results")} 
-                style={phaseButtonStyle(activePhase === "admin_results", false)}
-              >
+              <button onClick={() => setActivePhase("admin_results")} style={getPhaseButtonStyle(activePhase === "admin_results", false)}>
                 ⚽ Ergebnisse eintragen
               </button>
             </>
           )}
 
-          <hr style={dividerStyle} />
-          <button style={tabButtonStyle(false)} onClick={() => alert("Statistiken kommen bald!")}>
+          <hr style={DASHBOARD_STYLES.divider} />
+          <button style={getTabButtonStyle(false)} onClick={() => alert("Statistiken kommen bald!")}>
             📊 Statistiken
           </button>
         </nav>
 
-        <button onClick={onLogout} style={logoutButtonStyle}>Abmelden</button>
+        <button onClick={onLogout} style={DASHBOARD_STYLES.logoutButton}>Abmelden</button>
       </aside>
 
       {/* 🟢 HAUPTBEREICH */}
-      <main style={mainContentStyle}>
-        
+      <main style={DASHBOARD_STYLES.mainContent}>
         {activePhase === "ranking" ? (
           <>
             <section style={{ marginBottom: "30px" }}>
-              <h3 style={contentTitleStyle}>Anstehende Partien</h3>
-              <div style={matchGridStyle}>
+              <h3 style={DASHBOARD_STYLES.contentTitle}>Anstehende Partien</h3>
+              <div style={DASHBOARD_STYLES.matchGrid}>
                 {nextMatches.map(m => (
-                  <div key={m.id} style={matchCardStyle}>
-                    <div style={groupBadgeStyle}>Gruppe {m.group_name}</div>
-                    <div style={matchTeamsStyle}>{m.team_a} vs. {m.team_b}</div>
-                    <button onClick={() => setActivePhase(m.phase_id)} style={quickTippButtonStyle}>
+                  <div key={m.id} style={DASHBOARD_STYLES.matchCard}>
+                    <div style={DASHBOARD_STYLES.groupBadge}>Gruppe {m.group_name}</div>
+                    <div style={DASHBOARD_STYLES.matchTeams}>{m.team_a} vs. {m.team_b}</div>
+                    <button onClick={() => setActivePhase(m.phase_id)} style={DASHBOARD_STYLES.quickTippButton}>
                       Tippen
                     </button>
                   </div>
@@ -145,79 +126,44 @@ const Dashboard = ({ player, onLogout }) => {
               </div>
             </section>
 
-            <section style={whiteCardStyle}>
-              <h3 style={contentTitleStyle}>Aktuelle Rangliste</h3>
-              <table style={tableStyle}>
+            <section style={DASHBOARD_STYLES.whiteCard}>
+              <h3 style={DASHBOARD_STYLES.contentTitle}>Aktuelle Rangliste</h3>
+              <table style={DASHBOARD_STYLES.table}>
                 <thead>
-                  <tr style={tableHeaderStyle}>
-                    <th style={thStyle}>Platz</th>
-                    <th style={thStyle}>Name</th>
-                    <th style={thStyle}>Punkte</th>
+                  <tr style={DASHBOARD_STYLES.tableHeader}>
+                    <th style={DASHBOARD_STYLES.th}>Platz</th>
+                    <th style={DASHBOARD_STYLES.th}>Name</th>
+                    <th style={DASHBOARD_STYLES.th}>Punkte</th>
                   </tr>
                 </thead>
                 <tbody>
                   {ranking.map((entry, index) => (
-                    <tr key={entry.id} style={entry.id === player.id ? myRowStyle : tableRowStyle}>
-                      <td style={tdStyle}>{index + 1}.</td>
-                      <td style={tdStyle}>
-                        {entry.display_name && entry.display_name !== "EMPTY" 
-                          ? entry.display_name 
-                          : entry.name}
+                    <tr key={entry.id} style={entry.id === player.id ? DASHBOARD_STYLES.myRow : {}}>
+                      <td style={DASHBOARD_STYLES.td}>{index + 1}.</td>
+                      <td style={DASHBOARD_STYLES.td}>
+                        {entry.display_name && entry.display_name !== "EMPTY" ? entry.display_name : entry.name}
                       </td>
-                      <td style={tdStyle}><strong>{entry.points}</strong></td>
+                      <td style={DASHBOARD_STYLES.td}><strong>{entry.points}</strong></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </section>
           </>
-        ) : activePhase === "admin_control" ? (
-          <div style={flexibleCardStyle}>
-            <AdminControlCenter onUpdate={fetchDashboardData} />
-          </div>
-        ) : activePhase === "admin_results" ? (
-          <div style={flexibleCardStyle}>
-            <AdminResultsPage phaseId={systemConfig?.current_phase_id} />
-          </div>
         ) : (
-          <div style={flexibleCardStyle}>
-            <TippsPage 
-              player={player} 
-              phaseId={activePhase} 
-              isAdmin={player.is_admin} 
-            />
+          <div style={DASHBOARD_STYLES.flexibleCard}>
+            {activePhase === "admin_control" ? (
+              <AdminControlCenter onUpdate={fetchDashboardData} />
+            ) : activePhase === "admin_results" ? (
+              <AdminResultsPage phaseId={systemConfig?.current_phase_id} />
+            ) : (
+              <TippsPage player={player} phaseId={activePhase} isAdmin={player.is_admin} />
+            )}
           </div>
         )}
       </main>
     </div>
   );
 };
-
-// Styles (Unverändert übernommen)
-const layoutStyle = { display: "flex", minHeight: "100vh", backgroundColor: "#f8fafc" };
-const sidebarStyle = { width: "240px", backgroundColor: "#fff", borderRight: "1px solid #e2e8f0", padding: "25px", display: "flex", flexDirection: "column", position: "fixed", height: "100vh", zIndex: 100 };
-const mainContentStyle = { flex: 1, marginLeft: "240px", padding: "40px", overflowX: "auto", minWidth: 0 };
-const whiteCardStyle = { backgroundColor: "#fff", padding: "25px", borderRadius: "16px", border: "1px solid #e2e8f0", boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)" };
-const flexibleCardStyle = { ...whiteCardStyle, width: "fit-content", minWidth: "100%" };
-const profileBoxStyle = { marginBottom: "30px", paddingBottom: "20px", borderBottom: "1px solid #f1f5f9" };
-const badgeStyle = { fontSize: "11px", backgroundColor: "#e2e8f0", padding: "2px 8px", borderRadius: "10px", color: "#475569", fontWeight: "bold" };
-const navStyle = { display: "flex", flexDirection: "column", gap: "6px", flex: 1 };
-const sectionHeaderStyle = { fontSize: "11px", fontWeight: "800", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", margin: "15px 0 10px 5px" };
-const dividerStyle = { margin: "15px 0", border: "0", borderTop: "1px solid #f1f5f9" };
-const tabButtonStyle = (active) => ({ padding: "12px 15px", textAlign: "left", borderRadius: "10px", border: "none", cursor: "pointer", backgroundColor: active ? "#eff6ff" : "transparent", color: active ? "#2563eb" : "#64748b", fontWeight: "600" });
-const phaseButtonStyle = (active, isCurrent) => ({ padding: "10px 15px", textAlign: "left", borderRadius: "10px", border: "none", cursor: "pointer", backgroundColor: active ? "#2563eb" : "transparent", color: active ? "#fff" : (isCurrent ? "#0f172a" : "#94a3b8"), fontWeight: isCurrent || active ? "700" : "400" });
-const contentTitleStyle = { fontSize: "1.25rem", fontWeight: "700", marginBottom: "15px", color: "#0f172a" };
-const matchGridStyle = { display: "flex", gap: "15px" };
-const matchCardStyle = { flex: 1, backgroundColor: "#fff", padding: "20px", borderRadius: "16px", border: "1px solid #e2e8f0", textAlign: "center" };
-const groupBadgeStyle = { fontSize: "10px", color: "#64748b", fontWeight: "700", marginBottom: "8px" };
-const matchTeamsStyle = { fontSize: "15px", fontWeight: "700", color: "#1e293b", marginBottom: "12px" };
-const quickTippButtonStyle = { padding: "6px 12px", backgroundColor: "#f1f5f9", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: "600", color: "#2563eb" };
-const tableStyle = { width: "100%", borderCollapse: "collapse" };
-const tableHeaderStyle = { borderBottom: "2px solid #f1f5f9" };
-const thStyle = { textAlign: "left", padding: "15px", color: "#64748b", fontSize: "13px", fontWeight: "600" };
-const tdStyle = { padding: "15px", borderBottom: "1px solid #f1f5f9" };
-const tableRowStyle = { transition: "background 0.2s" };
-const myRowStyle = { backgroundColor: "#f0f9ff", fontWeight: "700", color: "#0369a1" };
-const logoutButtonStyle = { padding: "12px", marginTop: "20px", cursor: "pointer", backgroundColor: "#fff", border: "1px solid #fee2e2", borderRadius: "10px", color: "#dc2626", fontWeight: "600" };
 
 export default Dashboard;

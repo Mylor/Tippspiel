@@ -1,9 +1,19 @@
 import React, { useEffect, useState, useRef } from "react";
 import { supabase } from "../supabaseClient";
 import { getBestThirds } from "../Utils/calcTable";
+import { getCountryCode } from '../Utils/teamUtils';
+
+// --- IMPORT AUSGELAGERTER KONSTANTEN ---
+import { 
+  UI_STYLES, 
+  KO_STRUCTURE, 
+  ROUND_NAMES, 
+  PHASE_SPACING, 
+  PHASE_HEIGHTS, 
+} from '../Utils/uiConstants';
 
 // --- LOGIK & UTILS ---
-import { calculateTable, calculateFIFADataTable } from "../logic/tournamentLogic";
+import { calculateFIFADataTable } from "../logic/tournamentLogic";
 import { getTopPosition, resolveSlot, getTeamFromPrevious } from "../logic/koLogic";
 
 // --- UI-KOMPONENTEN ---
@@ -11,35 +21,6 @@ import GroupTable from './GroupTable';
 import KOBracket from './KOBracket';
 import BestThirdsTable from './BestThirdsTable';
 import TipInput from './TipInput';
-
-// --- STYLES & KONSTANTEN ---
-const KO_STRUCTURE = {
-  round16: [
-    ["E1", "1E"], ["I1", "1I"], ["F1", "C2"], ["B2", "A2"],
-    ["K2", "L2"], ["H1", "J2"], ["D1", "1D"], ["G1", "1G"],
-    ["C1", "F2"], ["E2", "I2"], ["A1", "1A"], ["L1", "1L"],
-    ["J1", "H2"], ["D2", "G2"], ["B1", "1B"], ["K1", "1K"]
-  ],
-};
-
-const ROUND_NAMES = { 
-  1: "Sechzehntelfinale", 2: "Achtelfinale", 3: "Viertelfinale", 4: "Halbfinale", 5: "Finale" 
-};
-
-const PHASE_SPACING = { 1: 300, 2: 200, 3: 100, 4: 50, 5: 25 };
-const PHASE_HEIGHTS = { 1: 2400, 2: 1200, 3: 800, 4: 600, 5: 400 };
-
-const matrixBoxOuterStyle = { width: "240px", minHeight: "115px", background: "#fff", borderRadius: "10px", boxShadow: "0 4px 12px rgba(0,0,0,0.05)", border: "1px solid #e2e8f0", display: "flex", flexDirection: "column", overflow: "hidden" };
-const teamRowSimulatedStyle = { padding: "10px 12px", display: "flex", alignItems: "center", height: "40px", fontSize: "0.85rem", gap: "10px", position: "relative" };
-const flagWrapperStyle = { width: "22px", height: "16px", overflow: "hidden", borderRadius: "2px", border: "1px solid #eee", display: "flex", alignItems: "center" };
-const flagImgStyle = { width: "100%", height: "auto" };
-const matrixLabelStyle = { fontSize: "0.65rem", fontWeight: "bold", color: "#878b8e", textTransform: "uppercase", marginBottom: "4px" };
-const headerColumnStyle = { width: "240px", textAlign: "center", display: "flex", flexDirection: "column", gap: "8px", marginBottom: "32px", marginTop: "20px" };
-const roundTitleStyle = { fontWeight: "bold", fontSize: "1rem", color: "#2d3748" };
-const resetButtonStyle = { padding: "4px 8px", fontSize: "0.75rem", backgroundColor: "#fff", border: "1px solid #ccc", borderRadius: "4px", cursor: "pointer", color: "#666" };
-const tipContainerStyle = { padding: "6px 10px", background: "#f8fafc", borderTop: "1px solid #e2e8f0" };
-const savedTipDisplayStyle = { fontSize: "0.9rem", textAlign: "center", fontWeight: "bold", color: "#1a73e8", display: "flex", flexDirection: "column", gap: "2px" };
-const winnerSubTextStyle = { fontSize: "0.65rem", color: "#666", fontWeight: "normal" };
 
 function TippsPage({ player, phaseId }) {
   const [matches, setMatches] = useState([]);
@@ -50,7 +31,6 @@ function TippsPage({ player, phaseId }) {
   const [treeHeight, setTreeHeight] = useState(800);
   const groupRef = useRef(null);
 
-  // --- 1. DATA FETCHING ---
   useEffect(() => {
     if (player?.id && phaseId) {
       fetchMatches();
@@ -69,6 +49,7 @@ function TippsPage({ player, phaseId }) {
     }
   }, [matches, tips, phaseId]);
 
+  // --- API CALLS ---
   async function fetchMatches() {
     const { data } = await supabase.from("match").select("*");
     setMatches(data || []);
@@ -105,16 +86,14 @@ function TippsPage({ player, phaseId }) {
     setSystemConfig(data);
   }
 
-  // --- STRIKTE SPERR-LOGIK ---
   const isReadOnly = phase?.is_submitted || systemConfig?.tips_locked_global;
   const showContent = !systemConfig?.tips_locked_global;
 
-  // --- 2. HILFSFUNKTIONEN ---
+  // --- HELPER ---
   const getWinningSide = (tip) => {
     if (!tip) return null;
     const gA = (tip.goals_a !== undefined && tip.goals_a !== null && tip.goals_a !== "") ? Number(tip.goals_a) : null;
     const gB = (tip.goals_b !== undefined && tip.goals_b !== null && tip.goals_b !== "") ? Number(tip.goals_b) : null;
-
     if (gA !== null && gB !== null) {
       if (gA > gB) return "1";
       if (gB > gA) return "2";
@@ -126,29 +105,10 @@ function TippsPage({ player, phaseId }) {
     if (!match) return "?";
     const tip = tips[match.id];
     if (!tip || !tip.winner) return "?";
-    if (type === "SH") return tip.winner === "1" ? match.team_a : match.team_b;
-    return tip.winner === "1" ? match.team_b : match.team_a;
+    return tip.winner === "1" ? (type === "SH" ? match.team_a : match.team_b) : (type === "SH" ? match.team_b : match.team_a);
   };
 
-  const getCountryCode = (teamName) => {
-    const mapping = {
-      "Mexiko": "mx", "Südafrika": "za", "Südkorea": "kr", "Tschechien": "cz",
-      "Kanada": "ca", "Bosnien": "ba", "USA": "us", "Paraguay": "py",
-      "Katar": "qa", "Schweiz": "ch", "Brasilien": "br", "Marokko": "ma",
-      "Haiti": "ht", "Schottland": "gb-sct", "Australien": "au", "Türkei": "tr",
-      "Deutschland": "de", "Curaçao": "cw", "Niederlande": "nl", "Japan": "jp",
-      "Elfenbeinküste": "ci", "Ecuador": "ec", "Schweden": "se", "Tunesien": "tn",
-      "Spanien": "es", "Kap Verde": "cv", "Belgien": "be", "Ägypten": "eg",
-      "Saudi-Arabien": "sa", "Uruguay": "uy", "Iran": "ir", "Neuseeland": "nz",
-      "Frankreich": "fr", "Senegal": "sn", "Irak": "iq", "Norwegen": "no",
-      "Argentinien": "ar", "Algerien": "dz", "Österreich": "at", "Jordanien": "jo",
-      "Portugal": "pt", "Kongo": "cd", "England": "gb-eng", "Kroatien": "hr",
-      "Ghana": "gh", "Panama": "pa", "Usbekistan": "uz", "Kolumbien": "co"
-    };
-    return mapping[teamName] || null;
-  };
-
-  // --- 3. SPEICHER-LOGIK ---
+  // --- SAVE ACTIONS ---
   async function saveTip(matchId, goalsA, goalsB, winner) {
     if (isReadOnly) return; 
     const gA = (goalsA !== null && goalsA !== "") ? Number(goalsA) : null;
@@ -159,153 +119,91 @@ function TippsPage({ player, phaseId }) {
       else if (gB > gA) calculatedWinner = "2";
     }
     const isSpecial = typeof matchId === 'string' && matchId.startsWith('OPT');
-    if (isSpecial) {
-      await supabase.from("tip_final_matrix").upsert([{
-        player_id: player.id, matrix_key: matchId, goals_a: gA, goals_b: gB,
-        winner: calculatedWinner, phase_id: phaseId,
-      }], { onConflict: 'player_id, matrix_key' });
-    } else {
-      await supabase.from("tip").upsert([{
-        player_id: player.id, match_id: matchId, phase_id: phaseId,
-        goals_a: gA, goals_b: gB, winner: calculatedWinner,
-      }], { onConflict: 'player_id, match_id, phase_id' });
-    }
+    const table = isSpecial ? "tip_final_matrix" : "tip";
+    const payload = isSpecial 
+      ? { player_id: player.id, matrix_key: matchId, goals_a: gA, goals_b: gB, winner: calculatedWinner, phase_id: phaseId }
+      : { player_id: player.id, match_id: matchId, phase_id: phaseId, goals_a: gA, goals_b: gB, winner: calculatedWinner };
+
+    await supabase.from(table).upsert([payload], { onConflict: isSpecial ? 'player_id, matrix_key' : 'player_id, match_id, phase_id' });
     setTips(prev => ({ ...prev, [matchId]: { goals_a: gA, goals_b: gB, winner: calculatedWinner } }));
   }
 
   async function saveManualRank(teamName, rank) {
     if (isReadOnly) return; 
     const val = rank === "" ? null : Number(rank);
-    await supabase.from("tip_manual_rank").upsert([{
-      player_id: player.id, phase_id: phaseId, team_name: teamName, manual_rank: val
-    }], { onConflict: 'player_id, phase_id, team_name' });
+    await supabase.from("tip_manual_rank").upsert([{ player_id: player.id, phase_id: phaseId, team_name: teamName, manual_rank: val }], { onConflict: 'player_id, phase_id, team_name' });
     setManualRanks(prev => ({ ...prev, [teamName]: val }));
   }
 
   async function saveGroupRankingsToDB(groupName, tableData, allBestThirds) {
     if (isReadOnly || !tableData || tableData.length < 4) return; 
     const bestThirdsNames = allBestThirds.slice(0, 8).map(t => t.team || t.name);
-    const record = {
-      player_id: player.id,
-      group_name: groupName,
-      rank_1: tableData[0].team,
-      rank_2: tableData[1].team,
-      rank_3: tableData[2].team,
-      rank_4: tableData[3].team,
-      reached_ko: [tableData[0].team, tableData[1].team],
-      dropped_out: [tableData[3].team],
-      reached_ko_best_thirds: bestThirdsNames,
-      created_at: new Date().toISOString()
-    };
-    const { error } = await supabase.from("user_prognosis_group").upsert([record], { onConflict: 'player_id, group_name' });
-    if (error) console.error(`Sync Fehler Gruppe ${groupName}:`, error);
+    await supabase.from("user_prognosis_group").upsert([{
+      player_id: player.id, group_name: groupName, rank_1: tableData[0].team, rank_2: tableData[1].team, rank_3: tableData[2].team, rank_4: tableData[3].team,
+      reached_ko: [tableData[0].team, tableData[1].team], dropped_out: [tableData[3].team], reached_ko_best_thirds: bestThirdsNames
+    }], { onConflict: 'player_id, group_name' });
   }
 
   async function resetGroup(groupName) {
     if (isReadOnly) return;
     const groupMatches = matches.filter(m => m.group_name === groupName);
-    const groupMatchIds = groupMatches.map(m => m.id);
     const teamsInGroup = [...new Set(groupMatches.flatMap(m => [m.team_a, m.team_b]))];
-    const koMatchIds = matches.filter(m => m.stage === "ko").map(m => m.id);
-    try {
-      await supabase.from("tip").delete().eq("player_id", player.id).in("match_id", groupMatchIds);
-      await supabase.from("tip_manual_rank").delete().eq("player_id", player.id).eq("phase_id", phaseId).in("team_name", teamsInGroup);
-      if (koMatchIds.length > 0) {
-        await supabase.from("tip").delete().eq("player_id", player.id).in("match_id", koMatchIds);
-      }
-      fetchTips(); 
-    } catch (error) {
-      console.error("Fehler beim Reset:", error);
-    }
+    await supabase.from("tip").delete().eq("player_id", player.id).in("match_id", groupMatches.map(m => m.id));
+    await supabase.from("tip_manual_rank").delete().eq("player_id", player.id).eq("phase_id", phaseId).in("team_name", teamsInGroup);
+    fetchTips(); 
   }
 
   async function deleteKORound(stageOrder, pId) {
     if (isReadOnly) return; 
     const idsToDelete = matches.filter(m => m.stage === "ko" && Number(m.stage_order) >= Number(stageOrder)).map(m => m.id);
-    if (idsToDelete.length > 0) {
-      await supabase.from("tip").delete().eq("player_id", player.id).eq("phase_id", pId).in("match_id", idsToDelete);
-    }
-    if (Number(pId) === 5 && Number(stageOrder) >= 4) {
-      await supabase.from("tip_final_matrix").delete().eq("player_id", player.id);
-    }
+    if (idsToDelete.length > 0) await supabase.from("tip").delete().eq("player_id", player.id).eq("phase_id", pId).in("match_id", idsToDelete);
+    if (Number(pId) === 5 && Number(stageOrder) >= 4) await supabase.from("tip_final_matrix").delete().eq("player_id", player.id);
     fetchTips();
   }
 
   async function resetOption(optId) {
     if (isReadOnly) return; 
-    const keysToDelete = [`OPT${optId}_F`, `OPT${optId}_S3` ];
-    await supabase.from("tip_final_matrix").delete().eq("player_id", player.id).in("matrix_key", keysToDelete);
+    await supabase.from("tip_final_matrix").delete().eq("player_id", player.id).in("matrix_key", [`OPT${optId}_F`, `OPT${optId}_S3`]);
     fetchTips();
   }
 
-  // --- 4. ZENTRALE BERECHNUNGEN ---
+  // --- PRE-CALCULATIONS ---
   const grouped = {};
   matches.filter(m => m.stage === "group").forEach(m => {
     if (!grouped[m.group_name]) grouped[m.group_name] = [];
     grouped[m.group_name].push(m);
   });
 
-  const allGroupsArray = Object.keys(grouped).map(name => ({ 
-    id: name, 
-    teams: calculateFIFADataTable(grouped[name], tips, manualRanks) 
-  }));
-
+  const allGroupsArray = Object.keys(grouped).map(name => ({ id: name, teams: calculateFIFADataTable(grouped[name], tips, manualRanks) }));
   const bestThirds = getBestThirds(allGroupsArray, manualRanks);
-
-  // --- 5. AUTOMATISCHER SYNC EFFECT ---
-  useEffect(() => {
-    if (Number(phaseId) === 1 && Object.keys(tips).length > 0) {
-      allGroupsArray.forEach(group => {
-        const groupMatchIds = grouped[group.id]?.map(m => m.id) || [];
-        const isComplete = groupMatchIds.length > 0 && groupMatchIds.every(id => tips[id]);
-        if (isComplete) {
-          saveGroupRankingsToDB(group.id, group.teams, bestThirds);
-        }
-      });
-    }
-  }, [tips, manualRanks, bestThirds, allGroupsArray, phaseId]);
-
-  // --- 6. RENDER LOGIK & REST ---
   const groupResults = {};
   allGroupsArray.forEach(g => { groupResults[g.id] = g.teams.map(t => t.team); });
 
-  const koMatches = matches.filter(m => m.stage === "ko").sort((a,b) => a.stage_order - b.stage_order || a.ko_order - b.ko_order);
   const koByRound = {};
-  koMatches.forEach(m => {
+  matches.filter(m => m.stage === "ko").sort((a,b) => a.stage_order - b.stage_order || a.ko_order - b.ko_order).forEach(m => {
     if (!koByRound[m.stage_order]) koByRound[m.stage_order] = [];
     koByRound[m.stage_order].push(m);
   });
 
-  const tournamentContext = { groups: groupResults, thirdPlaces: bestThirds.slice(0, 8), tips, phaseId: phaseId };
+  const tournamentContext = { groups: groupResults, thirdPlaces: bestThirds.slice(0, 8), tips, phaseId };
   const currentSpacing = phase ? (PHASE_SPACING[phase.id] || 70) : 70;
   const startIdxOfPhase = phase ? (phase.id <= 2 ? 0 : phase.id - 2) : 0;
-  const treeHeightCalculated = treeHeight;
-  const topOffset = getTopPosition(startIdxOfPhase, 0, treeHeightCalculated, currentSpacing);
+  const topOffset = getTopPosition(startIdxOfPhase, 0, treeHeight, currentSpacing);
 
+  // --- RENDER HELPERS ---
   const renderMatrixTeamRow = (teamName, side, isFirst, winningSide) => {
     const isWinner = winningSide === side;
     return (
-      <div style={{ 
-        ...teamRowSimulatedStyle, 
-        background: isWinner ? "#f0fff4" : "transparent", 
-        borderBottom: isFirst ? "1px solid #f1f5f9" : "none",
-        justifyContent: "space-between",
-        paddingRight: "15px"
-      }}>
+      <div style={{ ...UI_STYLES.teamRowSimulated, background: isWinner ? "#f0fff4" : "transparent", borderBottom: isFirst ? "1px solid #f1f5f9" : "none", justifyContent: "space-between", paddingRight: "15px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           {teamName !== "?" ? (
-            <div style={flagWrapperStyle}>
-              <img src={`https://flagcdn.com/w40/${getCountryCode(teamName)}.png`} alt="" style={flagImgStyle} />
+            <div style={UI_STYLES.flagWrapper}>
+              <img src={`https://flagcdn.com/w40/${getCountryCode(teamName)}.png`} alt="" style={UI_STYLES.flagImg} />
             </div>
           ) : (
             <div style={{ width: "22px", height: "16px", backgroundColor: "#f1f5f9", borderRadius: "2px" }} />
           )}
-          <span style={{ 
-            fontWeight: isWinner ? "700" : "400", 
-            color: teamName === "?" ? "#cbd5e0" : "#1e293b" 
-          }}>
-            {teamName}
-          </span>
+          <span style={{ fontWeight: isWinner ? "700" : "400", color: teamName === "?" ? "#cbd5e0" : "#1e293b" }}>{teamName}</span>
         </div>
         {isWinner && <span style={{ color: "#48bb78", fontWeight: "bold" }}>✓</span>}
       </div>
@@ -316,20 +214,11 @@ function TippsPage({ player, phaseId }) {
     const h1 = koByRound[4]?.[0];
     const h2 = koByRound[4]?.[1];
     if (!h1 || !h2) return null;
-
-    const tipH1 = tips[h1.id];
-    const tipH2 = tips[h2.id];
-    const semiFinalsComplete = tipH1 && tipH2;
-
-    const SH1 = getSHVH(h1, "SH");
-    const VH1 = getSHVH(h1, "VH");
-    const SH2 = getSHVH(h2, "SH");
-    const VH2 = getSHVH(h2, "VH");
-
+    const semiFinalsComplete = tips[h1.id] && tips[h2.id];
     const options = [
-      { id: 2, fA: SH1, fB: VH2, sA: VH1, sB: SH2 },
-      { id: 3, fA: VH1, fB: SH2, sA: SH1, sB: VH2 },
-      { id: 4, fA: VH1, fB: VH2, sA: SH1, sB: SH2 }
+      { id: 2, fA: getSHVH(h1, "SH"), fB: getSHVH(h2, "VH"), sA: getSHVH(h1, "VH"), sB: getSHVH(h2, "SH") },
+      { id: 3, fA: getSHVH(h1, "VH"), fB: getSHVH(h2, "SH"), sA: getSHVH(h1, "SH"), sB: getSHVH(h2, "VH") },
+      { id: 4, fA: getSHVH(h1, "VH"), fB: getSHVH(h2, "VH"), sA: getSHVH(h1, "SH"), sB: getSHVH(h2, "SH") }
     ];
 
     return (
@@ -339,79 +228,33 @@ function TippsPage({ player, phaseId }) {
           const tipS3 = tips[`OPT${opt.id}_S3`];
           const winF = getWinningSide(tipF);
           const winS3 = getWinningSide(tipS3);
-          const canEditThisOption = !isReadOnly && semiFinalsComplete;
+          const canEdit = !isReadOnly && semiFinalsComplete;
 
           return (
             <div key={opt.id} style={{ display: "flex", flexDirection: "column", opacity: semiFinalsComplete ? 1 : 0.6 }}>
-              <div style={headerColumnStyle}>
-                <span style={roundTitleStyle}>Variante {opt.id} F/Sp3</span>
-                {canEditThisOption && (
-                  <button onClick={() => resetOption(opt.id)} style={resetButtonStyle}>Reset</button>
-                )}
+              <div style={UI_STYLES.headerColumn}>
+                <span style={UI_STYLES.roundTitle}>Variante {opt.id} F/Sp3</span>
+                {canEdit && <button onClick={() => resetOption(opt.id)} style={UI_STYLES.resetButton}>Reset</button>}
               </div>
-
               <div style={{ display: "flex", flexDirection: "column", gap: "35px", marginTop: "120px" }}>
-                <div>
-                  <div style={matrixLabelStyle}>Finale (Variante {opt.id})</div>
-                  <div style={matrixBoxOuterStyle}>
-                    {renderMatrixTeamRow(opt.fA, "1", true, winF)}
-                    {renderMatrixTeamRow(opt.fB, "2", false, winF)}
-                    <div style={tipContainerStyle}>
-                      {tipF || !canEditThisOption ? (
-                        <div style={savedTipDisplayStyle}>
-                          {tipF ? (
-                            <>
-                              {(tipF.goals_a ?? "-")} : {(tipF.goals_b ?? "-")} 
-                              {tipF.goals_a !== null && tipF.goals_a === tipF.goals_b && (
-                                <span style={winnerSubTextStyle}>Sieger: {winF === "1" ? opt.fA : opt.fB}</span>
-                              )}
-                            </>
-                          ) : (
-                            <span style={{color: "#94a3b8", fontSize: "0.7rem"}}>
-                                {!semiFinalsComplete ? "Warten..." : "Kein Tipp"}
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <TipInput 
-                          teamA={opt.fA} teamB={opt.fB} isKO={true} 
-                          onSave={(a,b,w) => saveTip(`OPT${opt.id}_F`, a,b,w)} 
-                        />
-                      )}
+                {[ {label: 'Finale', key: `OPT${opt.id}_F`, tA: opt.fA, tB: opt.fB, tip: tipF, win: winF}, 
+                   {label: 'Platz 3', key: `OPT${opt.id}_S3`, tA: opt.sA, tB: opt.sB, tip: tipS3, win: winS3} 
+                ].map(m => (
+                  <div key={m.key}>
+                    <div style={UI_STYLES.matrixLabel}>{m.label} (V{opt.id})</div>
+                    <div style={UI_STYLES.matrixBoxOuter}>
+                      {renderMatrixTeamRow(m.tA, "1", true, m.win)}
+                      {renderMatrixTeamRow(m.tB, "2", false, m.win)}
+                      <div style={UI_STYLES.tipContainer}>
+                        {m.tip || !canEdit ? (
+                          <div style={UI_STYLES.savedTipDisplay}>
+                            {m.tip ? <>{m.tip.goals_a ?? "-"} : {m.tip.goals_b ?? "-"} {m.tip.goals_a === m.tip.goals_b && <span style={UI_STYLES.winnerSubText}>Sieger: {m.win === "1" ? m.tA : m.tB}</span>}</> : <span style={{color: "#94a3b8", fontSize: "0.7rem"}}>{!semiFinalsComplete ? "Warten..." : "Kein Tipp"}</span>}
+                          </div>
+                        ) : <TipInput teamA={m.tA} teamB={m.tB} isKO={true} onSave={(a,b,w) => saveTip(m.key, a,b,w)} />}
+                      </div>
                     </div>
                   </div>
-                </div>
-
-                <div>
-                  <div style={matrixLabelStyle}>Platz 3 (Variante {opt.id})</div>
-                  <div style={matrixBoxOuterStyle}>
-                    {renderMatrixTeamRow(opt.sA, "1", true, winS3)}
-                    {renderMatrixTeamRow(opt.sB, "2", false, winS3)}
-                    <div style={tipContainerStyle}>
-                      {tipS3 || !canEditThisOption ? (
-                        <div style={savedTipDisplayStyle}>
-                          {tipS3 ? (
-                            <>
-                              {tipS3.goals_a ?? "-"} : {tipS3.goals_b ?? "-"}
-                              {Number(tipS3.goals_a) === Number(tipS3.goals_b) && (
-                                <span style={winnerSubTextStyle}>Sieger: {winS3 === "1" ? opt.sA : opt.sB}</span>
-                              )}
-                            </>
-                          ) : (
-                            <span style={{color: "#94a3b8", fontSize: "0.7rem"}}>
-                                {!semiFinalsComplete ? "Warten..." : "Kein Tipp"}
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <TipInput 
-                          teamA={opt.sA} teamB={opt.sB} isKO={true} 
-                          onSave={(a,b,w) => saveTip(`OPT${opt.id}_S3`, a,b,w)} 
-                        />
-                      )}
-                    </div>
-                  </div>
-                </div>
+                ))}
               </div>
             </div>
           );
@@ -433,54 +276,23 @@ function TippsPage({ player, phaseId }) {
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "30px", marginBottom: "40px", maxWidth: "1100px" }}>
                   {Object.keys(grouped).sort().map(name => (
                     <div key={name} style={{ position: 'relative' }}>
-                      <GroupTable 
-                          groupName={name} 
-                          matches={grouped[name]} 
-                          tips={tips} 
-                          tableData={calculateFIFADataTable(grouped[name], tips, manualRanks)} 
-                          onSaveTip={saveTip} 
-                          isSubmitted={isReadOnly}
-                          manualRanks={manualRanks} 
-                          onSaveManualRank={saveManualRank}
-                          onDeleteTips={isReadOnly ? null : resetGroup}
-                      />
+                      <GroupTable groupName={name} matches={grouped[name]} tips={tips} tableData={allGroupsArray.find(g => g.id === name).teams} onSaveTip={saveTip} isSubmitted={isReadOnly} manualRanks={manualRanks} onSaveManualRank={saveManualRank} onDeleteTips={isReadOnly ? null : resetGroup} />
                     </div>
                   ))}
                 </div>
-                <BestThirdsTable 
-                  teams={bestThirds} 
-                  manualRanks={manualRanks} 
-                  onSaveManualRank={saveManualRank} 
-                  isSubmitted={isReadOnly}
-                />
+                <BestThirdsTable teams={bestThirds} manualRanks={manualRanks} onSaveManualRank={saveManualRank} isSubmitted={isReadOnly} />
               </div>
             </div>
           )}
           <div style={{ flexGrow: 1 }}>
             <h3 style={{ marginLeft: "20px" }}>KO-Phase</h3>
             <div style={{ display: "flex", flexDirection: "row", alignItems: "flex-start" }}>
-              <div style={{ flexShrink: 0 }}>
-                <KOBracket 
-                  koByRound={koByRound} tips={tips} treeHeight={treeHeight} 
-                  roundNames={ROUND_NAMES} 
-                  phase={{ ...phase, is_submitted: isReadOnly }} 
-                  getTopPosition={(rIdx, mIdx) => getTopPosition(rIdx, mIdx, treeHeight, currentSpacing) - topOffset}
-                  getTeamFromPrevious={(rIdx, mIdx, side) => getTeamFromPrevious(rIdx, mIdx, side, koByRound, tips, tournamentContext)}
-                  resolveSlot={(slot) => resolveSlot(slot, tournamentContext)}
-                  saveTip={isReadOnly ? null : saveTip} 
-                  deleteKORound={isReadOnly ? null : deleteKORound} 
-                  KO_STRUCTURE={KO_STRUCTURE}
-                />
-              </div>
+              <KOBracket koByRound={koByRound} tips={tips} treeHeight={treeHeight} roundNames={ROUND_NAMES} phase={{ ...phase, is_submitted: isReadOnly }} getTopPosition={(rIdx, mIdx) => getTopPosition(rIdx, mIdx, treeHeight, currentSpacing) - topOffset} getTeamFromPrevious={(rIdx, mIdx, side) => getTeamFromPrevious(rIdx, mIdx, side, koByRound, tips, tournamentContext)} resolveSlot={(slot) => resolveSlot(slot, tournamentContext)} saveTip={isReadOnly ? null : saveTip} deleteKORound={isReadOnly ? null : deleteKORound} KO_STRUCTURE={KO_STRUCTURE} />
               {Number(phaseId) === 5 && renderPhase5Matrix()}
             </div>
           </div>
         </div>
-      ) : (
-        <div style={{ padding: "100px", textAlign: "center", color: "#94a3b8" }}>
-          {/* Bleibt leer wie gewünscht */}
-        </div>
-      )}
+      ) : <div style={{ padding: "100px", textAlign: "center", color: "#94a3b8" }}></div>}
     </div>
   );
 }
