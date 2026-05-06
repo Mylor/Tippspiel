@@ -122,10 +122,10 @@ const KOBracket = ({
                                 <div style={BRACKET_STYLES.savedTipDisplay}>
                                   {(tip.goals_a !== null && tip.goals_a !== undefined && tip.goals_a !== "") 
                                     ? `${tip.goals_a} : ${tip.goals_b}` 
-                                    : `Sieger: ${String(tip.winner) === "1" ? teamA : teamB}`}
+                                    : `${String(tip.winner) === "1" ? teamA : teamB}`}
                                   {tip.goals_a !== null && tip.goals_a !== undefined && tip.goals_a !== "" && Number(tip.goals_a) === Number(tip.goals_b) && (
                                     <span style={{ fontSize: "0.65rem", color: "#666", fontWeight: "normal" }}>
-                                      Sieger: {String(tip.winner) === "1" ? teamA : teamB}
+                                      {String(tip.winner) === "1" ? teamA : teamB}
                                     </span>
                                   )}
                                 </div>

@@ -90,6 +90,12 @@ function TippsPage({ player, phaseId }) {
   const showContent = !systemConfig?.tips_locked_global;
 
   // --- HELPER ---
+  const getWinner = (matchId, currentTips) => {
+    const tip = currentTips[matchId];
+    if (!tip || tip.winner === null) return null;
+    return Number(tip.winner);
+  };
+
   const getWinningSide = (tip) => {
     if (!tip) return null;
     const gA = (tip.goals_a !== undefined && tip.goals_a !== null && tip.goals_a !== "") ? Number(tip.goals_a) : null;
@@ -110,21 +116,30 @@ function TippsPage({ player, phaseId }) {
 
   // --- SAVE ACTIONS ---
   async function saveTip(matchId, goalsA, goalsB, winner) {
-    if (isReadOnly) return; 
+    if (phase?.is_submitted) return;
     const gA = (goalsA !== null && goalsA !== "") ? Number(goalsA) : null;
     const gB = (goalsB !== null && goalsB !== "") ? Number(goalsB) : null;
+    
     let calculatedWinner = winner; 
     if (gA !== null && gB !== null) {
       if (gA > gB) calculatedWinner = "1";
       else if (gB > gA) calculatedWinner = "2";
     }
-    const isSpecial = typeof matchId === 'string' && matchId.startsWith('OPT');
-    const table = isSpecial ? "tip_final_matrix" : "tip";
-    const payload = isSpecial 
-      ? { player_id: player.id, matrix_key: matchId, goals_a: gA, goals_b: gB, winner: calculatedWinner, phase_id: phaseId }
-      : { player_id: player.id, match_id: matchId, phase_id: phaseId, goals_a: gA, goals_b: gB, winner: calculatedWinner };
 
-    await supabase.from(table).upsert([payload], { onConflict: isSpecial ? 'player_id, matrix_key' : 'player_id, match_id, phase_id' });
+    const isSpecial = typeof matchId === 'string' && matchId.startsWith('OPT');
+    
+    if (isSpecial) {
+      await supabase.from("tip_final_matrix").upsert([{
+        player_id: player.id, matrix_key: matchId, goals_a: gA, goals_b: gB,
+        winner: calculatedWinner, phase_id: phaseId,
+      }], { onConflict: 'player_id, matrix_key' });
+    } else {
+      await supabase.from("tip").upsert([{
+        player_id: player.id, match_id: matchId, phase_id: phaseId,
+        goals_a: gA, goals_b: gB, winner: calculatedWinner,
+      }], { onConflict: 'player_id, match_id, phase_id' });
+    }
+    
     setTips(prev => ({ ...prev, [matchId]: { goals_a: gA, goals_b: gB, winner: calculatedWinner } }));
   }
 
@@ -135,21 +150,13 @@ function TippsPage({ player, phaseId }) {
     setManualRanks(prev => ({ ...prev, [teamName]: val }));
   }
 
-  async function saveGroupRankingsToDB(groupName, tableData, allBestThirds) {
-    if (isReadOnly || !tableData || tableData.length < 4) return; 
-    const bestThirdsNames = allBestThirds.slice(0, 8).map(t => t.team || t.name);
-    await supabase.from("user_prognosis_group").upsert([{
-      player_id: player.id, group_name: groupName, rank_1: tableData[0].team, rank_2: tableData[1].team, rank_3: tableData[2].team, rank_4: tableData[3].team,
-      reached_ko: [tableData[0].team, tableData[1].team], dropped_out: [tableData[3].team], reached_ko_best_thirds: bestThirdsNames
-    }], { onConflict: 'player_id, group_name' });
-  }
-
   async function resetGroup(groupName) {
     if (isReadOnly) return;
     const groupMatches = matches.filter(m => m.group_name === groupName);
     const teamsInGroup = [...new Set(groupMatches.flatMap(m => [m.team_a, m.team_b]))];
     await supabase.from("tip").delete().eq("player_id", player.id).in("match_id", groupMatches.map(m => m.id));
     await supabase.from("tip_manual_rank").delete().eq("player_id", player.id).eq("phase_id", phaseId).in("team_name", teamsInGroup);
+    await deleteKORound(1, phaseId);
     fetchTips(); 
   }
 
@@ -189,6 +196,26 @@ function TippsPage({ player, phaseId }) {
   const currentSpacing = phase ? (PHASE_SPACING[phase.id] || 70) : 70;
   const startIdxOfPhase = phase ? (phase.id <= 2 ? 0 : phase.id - 2) : 0;
   const topOffset = getTopPosition(startIdxOfPhase, 0, treeHeight, currentSpacing);
+
+  // --- DB UPDATER EFFECT ---
+  useEffect(() => {
+    if (!player?.id || matches.length === 0 || phase?.is_submitted) return;
+
+    const runUpdates = async () => {
+      // 1. Gruppen-Prognose (nur in Phase 1)
+      if (Number(phaseId) === 1 && allGroupsArray.length > 0) {
+        const top8Thirds = bestThirds.slice(0, 8).map(t => t.team);
+        await updateGroupPrognosisDB(player.id, allGroupsArray, top8Thirds);
+      }
+
+      // 2. KO-Prognose (wenn KO-Spiele vorhanden)
+      if (Object.keys(koByRound).length > 0) {
+        await updateKOPrognosisDB(player.id, phaseId, koByRound, tips, tournamentContext);
+      }
+    };
+
+    runUpdates();
+  }, [tips, phaseId, player?.id, allGroupsArray, bestThirds, koByRound]);
 
   // --- RENDER HELPERS ---
   const renderMatrixTeamRow = (teamName, side, isFirst, winningSide) => {
@@ -248,7 +275,7 @@ function TippsPage({ player, phaseId }) {
                       <div style={UI_STYLES.tipContainer}>
                         {m.tip || !canEdit ? (
                           <div style={UI_STYLES.savedTipDisplay}>
-                            {m.tip ? <>{m.tip.goals_a ?? "-"} : {m.tip.goals_b ?? "-"} {m.tip.goals_a === m.tip.goals_b && <span style={UI_STYLES.winnerSubText}>Sieger: {m.win === "1" ? m.tA : m.tB}</span>}</> : <span style={{color: "#94a3b8", fontSize: "0.7rem"}}>{!semiFinalsComplete ? "Warten..." : "Kein Tipp"}</span>}
+                            {m.tip ? <>{m.tip.goals_a ?? "-"} : {m.tip.goals_b ?? "-"} {m.tip.goals_a === m.tip.goals_b && <span style={UI_STYLES.winnerSubText}>{m.win === "1" ? m.tA : m.tB}</span>}</> : <span style={{color: "#94a3b8", fontSize: "0.7rem"}}>{!semiFinalsComplete ? "Warten..." : "Kein Tipp"}</span>}
                           </div>
                         ) : <TipInput teamA={m.tA} teamB={m.tB} isKO={true} onSave={(a,b,w) => saveTip(m.key, a,b,w)} />}
                       </div>
@@ -262,6 +289,78 @@ function TippsPage({ player, phaseId }) {
       </div>
     );
   };
+
+  // --- DB HILFSFUNKTIONEN ---
+  async function updateGroupPrognosisDB(playerId, groupsArr, bestThirdsTeams) {
+    const records = groupsArr.map(g => ({
+      player_id: playerId,
+      group_name: g.id,
+      rank_1: g.teams[0]?.team || null,
+      rank_2: g.teams[1]?.team || null,
+      rank_3: g.teams[2]?.team || null,
+      rank_4: g.teams[3]?.team || null,
+      reached_ko: [g.teams[0]?.team, g.teams[1]?.team].filter(Boolean),
+      reached_ko_best_thirds: bestThirdsTeams,
+      dropped_out: [g.teams[3]?.team].filter(Boolean)
+    }));
+    const { error } = await supabase.from("user_prognosis_group").upsert(records, { onConflict: 'player_id, group_name' });
+    if (error) console.error("Fehler user_prognosis_group:", error.message);
+  }
+
+  async function updateKOPrognosisDB(playerId, phId, koData, currentTips, context) {
+    const currentId = Number(phId);
+
+    const getPrognosisTeam = (roundIdx, matchIdx, side) => {
+      const name = getTeamFromPrevious(roundIdx, matchIdx, side, koData, currentTips, context);
+      return (name && name !== "?") ? name : null;
+    };
+
+    const getProgWinner = (roundIdx, matchIdx) => {
+      const stageOrder = roundIdx + 1;
+      const m = koData[stageOrder]?.[matchIdx];
+      if (!m) return null;
+      const winSide = getWinner(m.id, currentTips);
+      if (!winSide) return null;
+      return getPrognosisTeam(roundIdx, matchIdx, winSide === 1 ? "A" : "B");
+    };
+
+    const getProgLoser = (roundIdx, matchIdx) => {
+      const stageOrder = roundIdx + 1;
+      const m = koData[stageOrder]?.[matchIdx];
+      if (!m) return null;
+      const winSide = getWinner(m.id, currentTips);
+      if (!winSide) return null;
+      return getPrognosisTeam(roundIdx, matchIdx, winSide === 1 ? "B" : "A");
+    };
+
+    const getSortedMatches = (stage) => (koData[stage] || []).sort((a, b) => a.ko_order - b.ko_order);
+
+    const r16 = getSortedMatches(1); 
+    const r8  = getSortedMatches(2); 
+    const r4  = getSortedMatches(3); 
+    const r2  = getSortedMatches(4); 
+    const r3placeMatch = koData[5]?.[1];
+
+    const finalRecord = {
+      player_id: playerId,
+      phase_id: currentId,
+      reached_16: (currentId >= 2) ? [] : r16.flatMap((_, i) => [getPrognosisTeam(0, i, "A"), getPrognosisTeam(0, i, "B")]).filter(Boolean),
+      reached_8:  (currentId >= 3) ? [] : r8.flatMap((_, i) => [getPrognosisTeam(1, i, "A"), getPrognosisTeam(1, i, "B")]).filter(Boolean),
+      reached_4:  (currentId >= 4) ? [] : r4.flatMap((_, i) => [getPrognosisTeam(2, i, "A"), getPrognosisTeam(2, i, "B")]).filter(Boolean),
+      reached_2:  r2.flatMap((_, i) => [getPrognosisTeam(3, i, "A"), getPrognosisTeam(3, i, "B")]).filter(Boolean),
+      drop_out_16: (currentId >= 3) ? [] : r16.map((_, i) => getProgLoser(0, i)).filter(Boolean),
+      drop_out_8:  (currentId >= 4) ? [] : r8.map((_, i) => getProgLoser(1, i)).filter(Boolean),
+      drop_out_4:  r4.map((_, i) => getProgLoser(2, i)).filter(Boolean),
+      drop_out_2:  r2.map((_, i) => getProgLoser(3, i)).filter(Boolean),
+      winner_final: koData[5]?.[0] ? getProgWinner(4, 0) : null,
+      loser_final:  koData[5]?.[0] ? getProgLoser(4, 0) : null,
+      winner_small_final: r3placeMatch ? getProgWinner(4, 1) : null,
+      loser_small_final:  r3placeMatch ? getProgLoser(4, 1) : null
+    };
+
+    const { error } = await supabase.from("user_prognosis_ko").upsert([finalRecord], { onConflict: 'player_id, phase_id' });
+    if (error) console.error(`DB-Fehler Phase ${currentId}:`, error.message);
+  }
 
   if (!player || !phaseId) return <div style={{ padding: "20px" }}>Lade Benutzerdaten...</div>;
 
