@@ -2,68 +2,55 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "../supabaseClient";
 import TippsPage from "./TippsPage";
 import AdminResultsPage from "./AdminResultsPage"; 
+import AdminControlCenter from "./AdminControlCenter";
 
 const Dashboard = ({ player, onLogout }) => {
   const [activePhase, setActivePhase] = useState("ranking");
   const [systemConfig, setSystemConfig] = useState(null);
   const [nextMatches, setNextMatches] = useState([]);
   const [ranking, setRanking] = useState([]);
+  const [allPhases, setAllPhases] = useState([]); 
   const [loading, setLoading] = useState(true);
 
+  // Änderung 1: useEffect nur beim Mounten ausführen (initialer Load)
   useEffect(() => {
     fetchDashboardData();
-  }, [activePhase]);
+  }, []);
 
   async function fetchDashboardData() {
-    setLoading(true);
+    // Wenn wir schon Phasen haben, ist es ein Hintergrund-Update -> kein Full-Page-Loading
+    if (allPhases.length === 0) setLoading(true);
+
     try {
-      // 1. System-Konfiguration laden (Phase etc.)
-      const { data: config } = await supabase.from("system_config").select("*").single();
-      setSystemConfig(config);
+      const [configRes, phasesRes, matchesRes, pointsRes, playersRes] = await Promise.all([
+        supabase.from("system_config").select("*").single(),
+        supabase.from("tip_phase").select("*").order("id", { ascending: true }),
+        supabase.from("match").select("*").order("match_order", { ascending: true }).limit(3),
+        supabase.from("user_points_detail").select("player_id, points_total"),
+        supabase.from("player").select("id, name, display_name")
+      ]);
 
-      // 2. Die nächsten 3 anstehenden Partien laden
-      const { data: matches } = await supabase
-        .from("match")
-        .select("*")
-        .order("match_order", { ascending: true })
-        .limit(3);
-      setNextMatches(matches || []);
-
-      // 3. Alle Punkte-Details aus der neuen Tabelle laden
-      const { data: allPoints, error: pointsError } = await supabase
-        .from("user_points_detail")
-        .select("player_id, points_total");
+      if (pointsRes.error) throw pointsRes.error;
       
-      if (pointsError) throw pointsError;
+      // Änderung 2: Sofortige State-Updates für die Sidebar
+      setAllPhases(phasesRes.data || []);
+      setSystemConfig(configRes.data);
+      setNextMatches(matchesRes.data || []);
 
-      // 4. Alle Spieler laden
-      const { data: players, error: playerError } = await supabase
-        .from("player")
-        .select("id, name, display_name");
-      
-      if (playerError) throw playerError;
-
-      // 5. Punkte pro Spieler berechnen (Summierung)
-      const calculatedRanking = players?.map(p => {
-        // Wir filtern alle Einträge aus user_points_detail, die zu diesem Spieler gehören
-        // WICHTIG: Mit Number() stellen wir sicher, dass "2" === 2 ist.
+      // Ranking Logik bleibt gleich...
+      const players = playersRes.data || [];
+      const allPoints = pointsRes.data || [];
+      const calculatedRanking = players.map(p => {
         const userTotal = allPoints
-          ?.filter(entry => Number(entry.player_id) === Number(p.id)) 
+          .filter(entry => Number(entry.player_id) === Number(p.id))
           .reduce((sum, entry) => sum + Number(entry.points_total), 0) || 0;
-
-        return {
-          ...p,
-          points: userTotal
-        };
-      }) || [];
-
-      // 6. Ranking sortieren (Höchste Punktzahl zuerst)
+        return { ...p, points: userTotal };
+      });
       calculatedRanking.sort((a, b) => b.points - a.points);
-      
       setRanking(calculatedRanking);
 
     } catch (error) {
-      console.error("Fehler beim Laden der Dashboard-Daten:", error);
+      console.error("Fehler beim Laden:", error);
     } finally {
       setLoading(false);
     }
@@ -74,7 +61,7 @@ const Dashboard = ({ player, onLogout }) => {
   return (
     <div style={layoutStyle}>
       
-      {/* 🟣 SIDEBAR (LINKS) */}
+      {/* 🟣 SIDEBAR */}
       <aside style={sidebarStyle}>
         <div style={profileBoxStyle}>
           <h2 style={{ fontSize: "1.2rem", margin: "0 0 5px 0" }}>
@@ -88,31 +75,43 @@ const Dashboard = ({ player, onLogout }) => {
             onClick={() => setActivePhase("ranking")} 
             style={tabButtonStyle(activePhase === "ranking")}
           >
-            Startseite
+            🏠 Startseite
           </button>
           
           <hr style={dividerStyle} />
           <p style={sectionHeaderStyle}>Tipp-Runden</p>
           
-          {[1, 2, 3, 4, 5].map((pId) => (
-            <button 
-              key={pId} 
-              onClick={() => setActivePhase(pId)} 
-              style={phaseButtonStyle(activePhase === pId, systemConfig?.current_phase_id === pId)}
-            >
-              Phase {pId} {systemConfig?.current_phase_id === pId ? " (Aktiv)" : ""}
-            </button>
-          ))}
+          {/* Dynamisch generierte Buttons basierend auf allPhases - GEFILTERT NACH AKTIV */}
+          {allPhases
+            .filter(p => p.is_active === true) // Nur sichtbare Phasen zeigen
+            .map((p) => (
+              <button 
+                key={p.id} 
+                onClick={() => setActivePhase(p.id)} 
+                style={phaseButtonStyle(activePhase === p.id, systemConfig?.current_phase_id === p.id)}
+              >
+                Phase {p.id} {systemConfig?.current_phase_id === p.id}
+                {p.is_submitted && " 🔒"} 
+              </button>
+            ))}
 
           {player.is_admin && (
             <>
               <hr style={dividerStyle} />
               <p style={sectionHeaderStyle}>Admin-Bereich</p>
+              
+              <button 
+                onClick={() => setActivePhase("admin_control")} 
+                style={phaseButtonStyle(activePhase === "admin_control", false)}
+              >
+                🛡️ Schaltzentrale
+              </button>
+
               <button 
                 onClick={() => setActivePhase("admin_results")} 
                 style={phaseButtonStyle(activePhase === "admin_results", false)}
               >
-                Echte Ergebnisse eintragen
+                ⚽ Ergebnisse eintragen
               </button>
             </>
           )}
@@ -126,7 +125,7 @@ const Dashboard = ({ player, onLogout }) => {
         <button onClick={onLogout} style={logoutButtonStyle}>Abmelden</button>
       </aside>
 
-      {/* 🟢 HAUPTBEREICH (RECHTS) */}
+      {/* 🟢 HAUPTBEREICH */}
       <main style={mainContentStyle}>
         
         {activePhase === "ranking" ? (
@@ -172,6 +171,10 @@ const Dashboard = ({ player, onLogout }) => {
               </table>
             </section>
           </>
+        ) : activePhase === "admin_control" ? (
+          <div style={flexibleCardStyle}>
+            <AdminControlCenter onUpdate={fetchDashboardData} />
+          </div>
         ) : activePhase === "admin_results" ? (
           <div style={flexibleCardStyle}>
             <AdminResultsPage phaseId={systemConfig?.current_phase_id} />
@@ -181,6 +184,7 @@ const Dashboard = ({ player, onLogout }) => {
             <TippsPage 
               player={player} 
               phaseId={activePhase} 
+              isAdmin={player.is_admin} 
             />
           </div>
         )}
@@ -189,7 +193,7 @@ const Dashboard = ({ player, onLogout }) => {
   );
 };
 
-// --- STYLES ---
+// Styles (Unverändert übernommen)
 const layoutStyle = { display: "flex", minHeight: "100vh", backgroundColor: "#f8fafc" };
 const sidebarStyle = { width: "240px", backgroundColor: "#fff", borderRight: "1px solid #e2e8f0", padding: "25px", display: "flex", flexDirection: "column", position: "fixed", height: "100vh", zIndex: 100 };
 const mainContentStyle = { flex: 1, marginLeft: "240px", padding: "40px", overflowX: "auto", minWidth: 0 };

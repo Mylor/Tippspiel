@@ -41,11 +41,12 @@ const tipContainerStyle = { padding: "6px 10px", background: "#f8fafc", borderTo
 const savedTipDisplayStyle = { fontSize: "0.9rem", textAlign: "center", fontWeight: "bold", color: "#1a73e8", display: "flex", flexDirection: "column", gap: "2px" };
 const winnerSubTextStyle = { fontSize: "0.65rem", color: "#666", fontWeight: "normal" };
 
-function TippsPage({ player, phaseId, context, isAdmin }) {
+function TippsPage({ player, phaseId }) {
   const [matches, setMatches] = useState([]);
   const [tips, setTips] = useState({});
   const [manualRanks, setManualRanks] = useState({});
   const [phase, setPhase] = useState(null);
+  const [systemConfig, setSystemConfig] = useState(null);
   const [treeHeight, setTreeHeight] = useState(800);
   const groupRef = useRef(null);
 
@@ -55,6 +56,7 @@ function TippsPage({ player, phaseId, context, isAdmin }) {
       fetchMatches();
       fetchTips();
       fetchPhase();
+      fetchSystemConfig();
     }
   }, [phaseId, player?.id]);
 
@@ -98,15 +100,24 @@ function TippsPage({ player, phaseId, context, isAdmin }) {
     setPhase(data);
   }
 
+  async function fetchSystemConfig() {
+    const { data } = await supabase.from("system_config").select("*").single();
+    setSystemConfig(data);
+  }
+
+  // --- STRIKTE SPERR-LOGIK ---
+  const isReadOnly = phase?.is_submitted || systemConfig?.tips_locked_global;
+  const showContent = !systemConfig?.tips_locked_global;
+
   // --- 2. HILFSFUNKTIONEN ---
   const getWinningSide = (tip) => {
     if (!tip) return null;
-    const gA = (tip.goals_a !== null && tip.goals_a !== "") ? Number(tip.goals_a) : null;
-    const gB = (tip.goals_b !== null && tip.goals_b !== "") ? Number(tip.goals_b) : null;
+    const gA = (tip.goals_a !== undefined && tip.goals_a !== null && tip.goals_a !== "") ? Number(tip.goals_a) : null;
+    const gB = (tip.goals_b !== undefined && tip.goals_b !== null && tip.goals_b !== "") ? Number(tip.goals_b) : null;
+
     if (gA !== null && gB !== null) {
       if (gA > gB) return "1";
       if (gB > gA) return "2";
-      return tip.winner ? String(tip.winner) : null;
     }
     return tip.winner ? String(tip.winner) : null;
   };
@@ -139,7 +150,7 @@ function TippsPage({ player, phaseId, context, isAdmin }) {
 
   // --- 3. SPEICHER-LOGIK ---
   async function saveTip(matchId, goalsA, goalsB, winner) {
-    if (phase?.is_submitted) return;
+    if (isReadOnly) return; 
     const gA = (goalsA !== null && goalsA !== "") ? Number(goalsA) : null;
     const gB = (goalsB !== null && goalsB !== "") ? Number(goalsB) : null;
     let calculatedWinner = winner; 
@@ -147,7 +158,6 @@ function TippsPage({ player, phaseId, context, isAdmin }) {
       if (gA > gB) calculatedWinner = "1";
       else if (gB > gA) calculatedWinner = "2";
     }
-    
     const isSpecial = typeof matchId === 'string' && matchId.startsWith('OPT');
     if (isSpecial) {
       await supabase.from("tip_final_matrix").upsert([{
@@ -164,7 +174,7 @@ function TippsPage({ player, phaseId, context, isAdmin }) {
   }
 
   async function saveManualRank(teamName, rank) {
-    if (phase?.is_submitted) return;
+    if (isReadOnly) return; 
     const val = rank === "" ? null : Number(rank);
     await supabase.from("tip_manual_rank").upsert([{
       player_id: player.id, phase_id: phaseId, team_name: teamName, manual_rank: val
@@ -173,7 +183,7 @@ function TippsPage({ player, phaseId, context, isAdmin }) {
   }
 
   async function saveGroupRankingsToDB(groupName, tableData, allBestThirds) {
-    if (phase?.is_submitted || !tableData || tableData.length < 4) return;
+    if (isReadOnly || !tableData || tableData.length < 4) return; 
     const bestThirdsNames = allBestThirds.slice(0, 8).map(t => t.team || t.name);
     const record = {
       player_id: player.id,
@@ -192,7 +202,7 @@ function TippsPage({ player, phaseId, context, isAdmin }) {
   }
 
   async function resetGroup(groupName) {
-    if (phase?.is_submitted) return;
+    if (isReadOnly) return;
     const groupMatches = matches.filter(m => m.group_name === groupName);
     const groupMatchIds = groupMatches.map(m => m.id);
     const teamsInGroup = [...new Set(groupMatches.flatMap(m => [m.team_a, m.team_b]))];
@@ -210,6 +220,7 @@ function TippsPage({ player, phaseId, context, isAdmin }) {
   }
 
   async function deleteKORound(stageOrder, pId) {
+    if (isReadOnly) return; 
     const idsToDelete = matches.filter(m => m.stage === "ko" && Number(m.stage_order) >= Number(stageOrder)).map(m => m.id);
     if (idsToDelete.length > 0) {
       await supabase.from("tip").delete().eq("player_id", player.id).eq("phase_id", pId).in("match_id", idsToDelete);
@@ -221,13 +232,13 @@ function TippsPage({ player, phaseId, context, isAdmin }) {
   }
 
   async function resetOption(optId) {
-    if (phase?.is_submitted) return;
+    if (isReadOnly) return; 
     const keysToDelete = [`OPT${optId}_F`, `OPT${optId}_S3` ];
     await supabase.from("tip_final_matrix").delete().eq("player_id", player.id).in("matrix_key", keysToDelete);
     fetchTips();
   }
 
-  // --- 4. ZENTRALE BERECHNUNGEN (MÜSSEN VOR DEM EFFECT STEHEN) ---
+  // --- 4. ZENTRALE BERECHNUNGEN ---
   const grouped = {};
   matches.filter(m => m.stage === "group").forEach(m => {
     if (!grouped[m.group_name]) grouped[m.group_name] = [];
@@ -306,6 +317,10 @@ function TippsPage({ player, phaseId, context, isAdmin }) {
     const h2 = koByRound[4]?.[1];
     if (!h1 || !h2) return null;
 
+    const tipH1 = tips[h1.id];
+    const tipH2 = tips[h2.id];
+    const semiFinalsComplete = tipH1 && tipH2;
+
     const SH1 = getSHVH(h1, "SH");
     const VH1 = getSHVH(h1, "VH");
     const SH2 = getSHVH(h2, "SH");
@@ -324,12 +339,13 @@ function TippsPage({ player, phaseId, context, isAdmin }) {
           const tipS3 = tips[`OPT${opt.id}_S3`];
           const winF = getWinningSide(tipF);
           const winS3 = getWinningSide(tipS3);
+          const canEditThisOption = !isReadOnly && semiFinalsComplete;
 
           return (
-            <div key={opt.id} style={{ display: "flex", flexDirection: "column" }}>
+            <div key={opt.id} style={{ display: "flex", flexDirection: "column", opacity: semiFinalsComplete ? 1 : 0.6 }}>
               <div style={headerColumnStyle}>
                 <span style={roundTitleStyle}>Variante {opt.id} F/Sp3</span>
-                {!phase?.is_submitted && !isAdmin && (
+                {canEditThisOption && (
                   <button onClick={() => resetOption(opt.id)} style={resetButtonStyle}>Reset</button>
                 )}
               </div>
@@ -341,11 +357,19 @@ function TippsPage({ player, phaseId, context, isAdmin }) {
                     {renderMatrixTeamRow(opt.fA, "1", true, winF)}
                     {renderMatrixTeamRow(opt.fB, "2", false, winF)}
                     <div style={tipContainerStyle}>
-                      {tipF ? (
+                      {tipF || !canEditThisOption ? (
                         <div style={savedTipDisplayStyle}>
-                          {tipF.goals_a} : {tipF.goals_b}
-                          {Number(tipF.goals_a) === Number(tipF.goals_b) && (
-                            <span style={winnerSubTextStyle}>Sieger: {winF === "1" ? opt.fA : opt.fB}</span>
+                          {tipF ? (
+                            <>
+                              {(tipF.goals_a ?? "-")} : {(tipF.goals_b ?? "-")} 
+                              {tipF.goals_a !== null && tipF.goals_a === tipF.goals_b && (
+                                <span style={winnerSubTextStyle}>Sieger: {winF === "1" ? opt.fA : opt.fB}</span>
+                              )}
+                            </>
+                          ) : (
+                            <span style={{color: "#94a3b8", fontSize: "0.7rem"}}>
+                                {!semiFinalsComplete ? "Warten..." : "Kein Tipp"}
+                            </span>
                           )}
                         </div>
                       ) : (
@@ -364,11 +388,19 @@ function TippsPage({ player, phaseId, context, isAdmin }) {
                     {renderMatrixTeamRow(opt.sA, "1", true, winS3)}
                     {renderMatrixTeamRow(opt.sB, "2", false, winS3)}
                     <div style={tipContainerStyle}>
-                      {tipS3 ? (
+                      {tipS3 || !canEditThisOption ? (
                         <div style={savedTipDisplayStyle}>
-                          {tipS3.goals_a} : {tipS3.goals_b}
-                          {Number(tipS3.goals_a) === Number(tipS3.goals_b) && (
-                            <span style={winnerSubTextStyle}>Sieger: {winS3 === "1" ? opt.sA : opt.sB}</span>
+                          {tipS3 ? (
+                            <>
+                              {tipS3.goals_a ?? "-"} : {tipS3.goals_b ?? "-"}
+                              {Number(tipS3.goals_a) === Number(tipS3.goals_b) && (
+                                <span style={winnerSubTextStyle}>Sieger: {winS3 === "1" ? opt.sA : opt.sB}</span>
+                              )}
+                            </>
+                          ) : (
+                            <span style={{color: "#94a3b8", fontSize: "0.7rem"}}>
+                                {!semiFinalsComplete ? "Warten..." : "Kein Tipp"}
+                            </span>
                           )}
                         </div>
                       ) : (
@@ -392,54 +424,63 @@ function TippsPage({ player, phaseId, context, isAdmin }) {
 
   return (
     <div style={{ padding: "20px", width: "100%", overflowX: "auto" }}>
-      <div style={{ display: "flex", flexDirection: "row", gap: "40px", alignItems: "flex-start" }}>
-        {Number(phaseId) === 1 && (
-          <div style={{ flexShrink: 0, width: "fit-content" }}>
-            <div ref={groupRef}>
-              <h3>Gruppenphase</h3>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "30px", marginBottom: "40px", maxWidth: "1100px" }}>
-                {Object.keys(grouped).sort().map(name => (
-                  <div key={name} style={{ position: 'relative' }}>
-                    <GroupTable 
-                        groupName={name} 
-                        matches={grouped[name]} 
-                        tips={tips} 
-                        tableData={calculateFIFADataTable(grouped[name], tips, manualRanks)} 
-                        onSaveTip={saveTip} 
-                        isSubmitted={phase?.is_submitted}
-                        manualRanks={manualRanks} 
-                        onSaveManualRank={saveManualRank}
-                        onDeleteTips={resetGroup}
-                    />
-                  </div>
-                ))}
+      {showContent ? (
+        <div style={{ display: "flex", flexDirection: "row", gap: "40px", alignItems: "flex-start" }}>
+          {Number(phaseId) === 1 && (
+            <div style={{ flexShrink: 0, width: "fit-content" }}>
+              <div ref={groupRef}>
+                <h3>Gruppenphase</h3>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "30px", marginBottom: "40px", maxWidth: "1100px" }}>
+                  {Object.keys(grouped).sort().map(name => (
+                    <div key={name} style={{ position: 'relative' }}>
+                      <GroupTable 
+                          groupName={name} 
+                          matches={grouped[name]} 
+                          tips={tips} 
+                          tableData={calculateFIFADataTable(grouped[name], tips, manualRanks)} 
+                          onSaveTip={saveTip} 
+                          isSubmitted={isReadOnly}
+                          manualRanks={manualRanks} 
+                          onSaveManualRank={saveManualRank}
+                          onDeleteTips={isReadOnly ? null : resetGroup}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <BestThirdsTable 
+                  teams={bestThirds} 
+                  manualRanks={manualRanks} 
+                  onSaveManualRank={saveManualRank} 
+                  isSubmitted={isReadOnly}
+                />
               </div>
-              <BestThirdsTable 
-                teams={bestThirds} 
-                manualRanks={manualRanks} 
-                onSaveManualRank={saveManualRank} // <-- WICHTIG: Prüfe, ob 'saveManualRank' hier existiert!
-                isSubmitted={phase?.is_submitted}
-              />
             </div>
-          </div>
-        )}
-        <div style={{ flexGrow: 1 }}>
-          <h3 style={{ marginLeft: "20px" }}>KO-Phase</h3>
-          <div style={{ display: "flex", flexDirection: "row", alignItems: "flex-start" }}>
-            <div style={{ flexShrink: 0 }}>
-              <KOBracket 
-                koByRound={koByRound} tips={tips} treeHeight={treeHeight} 
-                roundNames={ROUND_NAMES} phase={phase} isAdmin={isAdmin}
-                getTopPosition={(rIdx, mIdx) => getTopPosition(rIdx, mIdx, treeHeight, currentSpacing) - topOffset}
-                getTeamFromPrevious={(rIdx, mIdx, side) => getTeamFromPrevious(rIdx, mIdx, side, koByRound, tips, tournamentContext)}
-                resolveSlot={(slot) => resolveSlot(slot, tournamentContext)}
-                saveTip={saveTip} deleteKORound={deleteKORound} KO_STRUCTURE={KO_STRUCTURE}
-              />
+          )}
+          <div style={{ flexGrow: 1 }}>
+            <h3 style={{ marginLeft: "20px" }}>KO-Phase</h3>
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "flex-start" }}>
+              <div style={{ flexShrink: 0 }}>
+                <KOBracket 
+                  koByRound={koByRound} tips={tips} treeHeight={treeHeight} 
+                  roundNames={ROUND_NAMES} 
+                  phase={{ ...phase, is_submitted: isReadOnly }} 
+                  getTopPosition={(rIdx, mIdx) => getTopPosition(rIdx, mIdx, treeHeight, currentSpacing) - topOffset}
+                  getTeamFromPrevious={(rIdx, mIdx, side) => getTeamFromPrevious(rIdx, mIdx, side, koByRound, tips, tournamentContext)}
+                  resolveSlot={(slot) => resolveSlot(slot, tournamentContext)}
+                  saveTip={isReadOnly ? null : saveTip} 
+                  deleteKORound={isReadOnly ? null : deleteKORound} 
+                  KO_STRUCTURE={KO_STRUCTURE}
+                />
+              </div>
+              {Number(phaseId) === 5 && renderPhase5Matrix()}
             </div>
-            {Number(phaseId) === 5 && renderPhase5Matrix()}
           </div>
         </div>
-      </div>
+      ) : (
+        <div style={{ padding: "100px", textAlign: "center", color: "#94a3b8" }}>
+          {/* Bleibt leer wie gewünscht */}
+        </div>
+      )}
     </div>
   );
 }
