@@ -1,4 +1,10 @@
-// --- 1. DIE DATEN (Hier kommen die Blöcke rein) ---
+/**
+ * thirdPlaceMapping.js
+ * * Diese Datei steuert die hochkomplexe Logik, welche Gruppendritten
+ * auf welche Gruppensieger treffen (Achtelfinale).
+ */
+
+// --- 1. DIE DATEN (Alle 495 Möglichkeiten) ---
 const OPTIONS_DATA = {
   1: ["3E", "3J", "3I", "3F", "3H", "3G", "3L", "3K"],
   2: ["3H", "3G", "3I", "3D", "3J", "3F", "3L", "3K"],
@@ -497,12 +503,12 @@ const OPTIONS_DATA = {
   495: ["3H", "3G", "3B", "3C", "3A", "3F", "3D", "3E"]
 };
 
-// --- 2. DIE LOGIK-HELFER ---
-
 const GROUPS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"];
 
 /**
- * Erzeugt alle 495 möglichen Kombinationen von 8 Gruppen aus 12.
+ * Erzeugt alle Kombinationen (12 über 8).
+ * WICHTIG: Das .reverse() am Ende ist entscheidend, damit der Index 
+ * zu deiner OPTIONS_DATA Matrix passt.
  */
 function getAllCombinations(arr, k) {
   const results = [];
@@ -519,18 +525,17 @@ function getAllCombinations(arr, k) {
   return results;
 }
 
-// Hier ist dein FIFA-Reverse
 const ALL_COMBOS = getAllCombinations(GROUPS, 8).reverse();
 
+/**
+ * Der Resolver:
+ * Erhält einen Slot (z.B. "1A") und die Liste der 8 besten Dritten.
+ * Berechnet die Combo, schlägt den Index nach und gibt das Team zurück.
+ */
 export function getThirdPlaceForSlot(slot, bestThirds) {
-  // 1. Validierung
-  if (!bestThirds || bestThirds.length < 8) {
-    console.warn("Abbruch: Nicht genug bestThirds vorhanden (benötigt 8).");
-    return "?";
-  }
+  if (!bestThirds || bestThirds.length < 8) return "?";
 
-  // 2. Combo erstellen
-  // Wir sortieren alphabetisch, damit "ABEFHIJK" entsteht
+  // Combo erstellen (z.B. "ABCEFGHI")
   const currentCombo = bestThirds
     .map(t => t.group)
     .filter(Boolean)
@@ -538,10 +543,7 @@ export function getThirdPlaceForSlot(slot, bestThirds) {
     .join("")
     .trim();
 
-  
   const comboIndex = ALL_COMBOS.indexOf(currentCombo);
-  console.log("Gefundener Index in ALL_COMBOS:", comboIndex);
-
   if (comboIndex === -1) return "Combo Not Found";
 
   const optionNumber = comboIndex + 1;
@@ -549,6 +551,7 @@ export function getThirdPlaceForSlot(slot, bestThirds) {
 
   if (!mapping) return `Option ${optionNumber} missing`;
 
+  // Welcher Slot im Achtelfinale entspricht welchem Index in der Mapping-Tabelle?
   const slotToIndex = {
     "1A": 0, "1B": 1, "1D": 2, "1E": 3, "1G": 4, "1I": 5, "1K": 6, "1L": 7
   };
@@ -556,6 +559,7 @@ export function getThirdPlaceForSlot(slot, bestThirds) {
   const targetIndex = slotToIndex[slot];
   if (targetIndex === undefined) return "?";
 
+  // Extrahiere Gruppenbuchstaben (aus "3E" wird "E")
   const targetGroupLetter = mapping[targetIndex].replace("3", "");
   const finalTeam = bestThirds.find(t => t.group === targetGroupLetter);
   

@@ -1,5 +1,9 @@
 // teamUtils.js
 
+/**
+ * Mapping-Objekt: Verknüpft Teamnamen mit den ISO-Codes für FlagCDN.
+ * Wichtig: Die Namen müssen exakt mit den Daten aus der Datenbank/State übereinstimmen.
+ */
 const countryMapping = {
   "Mexiko": "mx", "Südafrika": "za", "Südkorea": "kr", "Tschechien": "cz",
   "Kanada": "ca", "Bosnien": "ba", "USA": "us", "Paraguay": "py",
@@ -15,16 +19,21 @@ const countryMapping = {
   "Ghana": "gh", "Panama": "pa", "Usbekistan": "uz", "Kolumbien": "co"
 };
 
+/**
+ * Hilfsfunktion zum Abrufen des ISO-Codes.
+ */
 export const getCountryCode = (teamName) => {
   return countryMapping[teamName] || null;
 };
 
 /**
- * Eine fertige Flaggen-Komponente, die du überall importieren kannst
+ * React-Komponente: Zeigt die Flagge eines Teams an.
+ * @param {string} teamName - Der Name des Teams (muss im countryMapping existieren).
  */
 export const FlagIcon = ({ teamName }) => {
   const code = getCountryCode(teamName);
   
+  // Fallback: Wenn kein Code gefunden wird, zeige einen grauen Platzhalter
   if (!code) {
     return (
       <div style={{ 
@@ -37,6 +46,7 @@ export const FlagIcon = ({ teamName }) => {
     );
   }
 
+  // Flagge von FlagCDN laden
   return (
     <img 
       src={`https://flagcdn.com/w40/${code}.png`} 

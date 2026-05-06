@@ -3,16 +3,13 @@ import { supabase } from "../supabaseClient";
 import { getBestThirds } from "../Utils/calcTable";
 import { getCountryCode } from '../Utils/teamUtils';
 
-// --- IMPORT AUSGELAGERTER KONSTANTEN ---
+// --- KONSTANTEN & STYLES ---
 import { 
-  UI_STYLES, 
-  KO_STRUCTURE, 
-  ROUND_NAMES, 
-  PHASE_SPACING, 
-  PHASE_HEIGHTS, 
+  UI_STYLES, KO_STRUCTURE, ROUND_NAMES, 
+  PHASE_SPACING, PHASE_HEIGHTS, 
 } from '../Utils/uiConstants';
 
-// --- LOGIK & UTILS ---
+// --- LOGIK-FUNKTIONEN ---
 import { calculateFIFADataTable } from "../logic/tournamentLogic";
 import { getTopPosition, resolveSlot, getTeamFromPrevious } from "../logic/koLogic";
 
@@ -23,23 +20,26 @@ import BestThirdsTable from './BestThirdsTable';
 import TipInput from './TipInput';
 
 function TippsPage({ player, phaseId }) {
-  const [matches, setMatches] = useState([]);
-  const [tips, setTips] = useState({});
-  const [manualRanks, setManualRanks] = useState({});
-  const [phase, setPhase] = useState(null);
-  const [systemConfig, setSystemConfig] = useState(null);
-  const [treeHeight, setTreeHeight] = useState(800);
-  const groupRef = useRef(null);
+  // --- STATES ---
+  const [matches, setMatches] = useState([]);         // Alle Spiele aus der DB
+  const [tips, setTips] = useState({});               // Map der User-Tipps {matchId: tipData}
+  const [manualRanks, setManualRanks] = useState({}); // Manuelle Rang-Korrekturen (z.B. Losentscheid)
+  const [phase, setPhase] = useState(null);           // Infos zur aktuellen Tipp-Phase
+  const [systemConfig, setSystemConfig] = useState(null); // Globale Einstellungen (z.B. Sperre)
+  const [treeHeight, setTreeHeight] = useState(800);  // Dynamische Höhe für den KO-Baum
+  const groupRef = useRef(null);                      // Referenz um Höhe der Gruppenphase zu messen
 
+  // --- INITIALES LADEN ---
   useEffect(() => {
     if (player?.id && phaseId) {
-      fetchMatches();
-      fetchTips();
-      fetchPhase();
-      fetchSystemConfig();
+      fetchMatches();      // Holt alle Spielansetzungen
+      fetchTips();         // Holt Tipps, Matrix-Tipps und manuelle Ränge des Spielers
+      fetchPhase();        // Prüft Phase (z.B. ob schon abgegeben)
+      fetchSystemConfig(); // Prüft globale Sperren
     }
   }, [phaseId, player?.id]);
 
+  // Passt die Höhe des KO-Baums an die aktuelle Phase oder die Gruppen-Sidebar an
   useEffect(() => {
     const currentId = Number(phaseId);
     if (PHASE_HEIGHTS[currentId]) {
@@ -49,12 +49,15 @@ function TippsPage({ player, phaseId }) {
     }
   }, [matches, tips, phaseId]);
 
-  // --- API CALLS ---
+  // --- API CALLS (DB INTERAKTION) ---
+  
+  // Lädt alle Spiele der Datenbank
   async function fetchMatches() {
     const { data } = await supabase.from("match").select("*");
     setMatches(data || []);
   }
 
+  // Lädt Tipps, Spezial-Matrix-Tipps (Phase 5) und manuelle Platzierungen
   async function fetchTips() {
     if (!player?.id || !phaseId) return;
     const { data: normalData } = await supabase.from("tip").select("*").eq("player_id", player.id).eq("phase_id", phaseId);
@@ -75,27 +78,33 @@ function TippsPage({ player, phaseId }) {
     setManualRanks(rankMap);
   }
 
+  // Holt Details zur Tipp-Phase (Abgabe-Status)
   async function fetchPhase() {
     if (!phaseId) return;
     const { data } = await supabase.from("tip_phase").select("*").eq("id", phaseId).single();
     setPhase(data);
   }
 
+  // Holt die globale Konfiguration (Wartungsmodus/Sperre)
   async function fetchSystemConfig() {
     const { data } = await supabase.from("system_config").select("*").single();
     setSystemConfig(data);
   }
 
+  // Status-Variablen für Schreibschutz
   const isReadOnly = phase?.is_submitted || systemConfig?.tips_locked_global;
   const showContent = !systemConfig?.tips_locked_global;
 
-  // --- HELPER ---
+  // --- HELPER FUNKTIONEN (UI LOGIK) ---
+  
+  // Ermittelt den Gewinner-Index (1 oder 2) aus dem Tipps-Objekt
   const getWinner = (matchId, currentTips) => {
     const tip = currentTips[matchId];
     if (!tip || tip.winner === null) return null;
     return Number(tip.winner);
   };
 
+  // Bestimmt die Gewinner-Seite basierend auf Toren oder manuellem Sieger (KO)
   const getWinningSide = (tip) => {
     if (!tip) return null;
     const gA = (tip.goals_a !== undefined && tip.goals_a !== null && tip.goals_a !== "") ? Number(tip.goals_a) : null;
@@ -107,14 +116,17 @@ function TippsPage({ player, phaseId }) {
     return tip.winner ? String(tip.winner) : null;
   };
 
-  const getSHVH = (match, type) => {
+  // Ermittelt Teamnamen für die Phase 5 Matrix (Spezialfall für Halbfinal-Paarungen)
+  const getWLphase5 = (match, type) => {
     if (!match) return "?";
     const tip = tips[match.id];
     if (!tip || !tip.winner) return "?";
     return tip.winner === "1" ? (type === "SH" ? match.team_a : match.team_b) : (type === "SH" ? match.team_b : match.team_a);
   };
 
-  // --- SAVE ACTIONS ---
+  // --- SPEICHER-AKTIONEN (USER EINGABE) ---
+  
+  // Speichert Tore und Gewinner eines Tipps in 'tip' oder 'tip_final_matrix'
   async function saveTip(matchId, goalsA, goalsB, winner) {
     if (phase?.is_submitted) return;
     const gA = (goalsA !== null && goalsA !== "") ? Number(goalsA) : null;
@@ -143,6 +155,7 @@ function TippsPage({ player, phaseId }) {
     setTips(prev => ({ ...prev, [matchId]: { goals_a: gA, goals_b: gB, winner: calculatedWinner } }));
   }
 
+  // Speichert einen manuellen Rang (Losentscheid) für die Gruppentabelle
   async function saveManualRank(teamName, rank) {
     if (isReadOnly) return; 
     const val = rank === "" ? null : Number(rank);
@@ -150,74 +163,91 @@ function TippsPage({ player, phaseId }) {
     setManualRanks(prev => ({ ...prev, [teamName]: val }));
   }
 
+  // Löscht alle Tipps und Rang-Korrekturen einer kompletten Gruppe sowie Folge-KO-Spiele
   async function resetGroup(groupName) {
     if (isReadOnly) return;
     const groupMatches = matches.filter(m => m.group_name === groupName);
+    const matchIds = groupMatches.map(m => m.id);
     const teamsInGroup = [...new Set(groupMatches.flatMap(m => [m.team_a, m.team_b]))];
-    await supabase.from("tip").delete().eq("player_id", player.id).in("match_id", groupMatches.map(m => m.id));
+    await supabase.from("tip").delete().eq("player_id", player.id).in("match_id", matchIds);
     await supabase.from("tip_manual_rank").delete().eq("player_id", player.id).eq("phase_id", phaseId).in("team_name", teamsInGroup);
+    await supabase.from("user_points_detail").delete().eq("player_id", player.id).in("match_id", matchIds);
     await deleteKORound(1, phaseId);
     fetchTips(); 
   }
 
+  // Löscht kaskadierend alle KO-Tipps und zugehörige Punkte-Details ab einer bestimmten Runde
   async function deleteKORound(stageOrder, pId) {
     if (isReadOnly) return; 
-    const idsToDelete = matches.filter(m => m.stage === "ko" && Number(m.stage_order) >= Number(stageOrder)).map(m => m.id);
-    if (idsToDelete.length > 0) await supabase.from("tip").delete().eq("player_id", player.id).eq("phase_id", pId).in("match_id", idsToDelete);
-    if (Number(pId) === 5 && Number(stageOrder) >= 4) await supabase.from("tip_final_matrix").delete().eq("player_id", player.id);
+    const matchesToDelete = matches.filter(m => m.stage === "ko" && Number(m.stage_order) >= Number(stageOrder));
+    const idsToDelete = matchesToDelete.map(m => m.id);
+    if (idsToDelete.length > 0) {
+      await supabase.from("tip").delete().eq("player_id", player.id).eq("phase_id", pId).in("match_id", idsToDelete);
+      await supabase.from("user_points_detail").delete().eq("player_id", player.id).in("match_id", idsToDelete);
+    } 
     fetchTips();
   }
 
+  // Löscht spezifische Varianten-Tipps in der Phase 5 Matrix
   async function resetOption(optId) {
     if (isReadOnly) return; 
     await supabase.from("tip_final_matrix").delete().eq("player_id", player.id).in("matrix_key", [`OPT${optId}_F`, `OPT${optId}_S3`]);
     fetchTips();
   }
 
-  // --- PRE-CALCULATIONS ---
+  // --- VORBEREITUNG DER DATEN (UI-BERECHNUNG) ---
+  
+  // Gruppiert alle Spiele nach Gruppennamen
   const grouped = {};
   matches.filter(m => m.stage === "group").forEach(m => {
     if (!grouped[m.group_name]) grouped[m.group_name] = [];
     grouped[m.group_name].push(m);
   });
 
+  // Berechnet Tabellenstände pro Gruppe und identifiziert die besten Gruppendritten
   const allGroupsArray = Object.keys(grouped).map(name => ({ id: name, teams: calculateFIFADataTable(grouped[name], tips, manualRanks) }));
   const bestThirds = getBestThirds(allGroupsArray, manualRanks);
   const groupResults = {};
   allGroupsArray.forEach(g => { groupResults[g.id] = g.teams.map(t => t.team); });
 
+  // Sortiert KO-Spiele nach Runden für das Bracket
   const koByRound = {};
   matches.filter(m => m.stage === "ko").sort((a,b) => a.stage_order - b.stage_order || a.ko_order - b.ko_order).forEach(m => {
     if (!koByRound[m.stage_order]) koByRound[m.stage_order] = [];
     koByRound[m.stage_order].push(m);
   });
 
+  // Kontext-Objekt für die Auflösung der KO-Paarungen (wer spielt gegen wen?)
   const tournamentContext = { groups: groupResults, thirdPlaces: bestThirds.slice(0, 8), tips, phaseId };
   const currentSpacing = phase ? (PHASE_SPACING[phase.id] || 70) : 70;
   const startIdxOfPhase = phase ? (phase.id <= 2 ? 0 : phase.id - 2) : 0;
   const topOffset = getTopPosition(startIdxOfPhase, 0, treeHeight, currentSpacing);
 
-  // --- DB UPDATER EFFECT ---
+  // --- DB UPDATER (DEBOUNCED PROGNOSE) ---
+  
+  // Aktualisiert die Tabellen 'user_prognosis_group/ko' verzögert (500ms) nach Tipp-Änderung
   useEffect(() => {
     if (!player?.id || matches.length === 0 || phase?.is_submitted) return;
 
-    const runUpdates = async () => {
-      // 1. Gruppen-Prognose (nur in Phase 1)
+    const handler = setTimeout(async () => {
+      // 1. Speichert Gruppen-Endstände in die Prognose-Tabelle
       if (Number(phaseId) === 1 && allGroupsArray.length > 0) {
         const top8Thirds = bestThirds.slice(0, 8).map(t => t.team);
         await updateGroupPrognosisDB(player.id, allGroupsArray, top8Thirds);
       }
-
-      // 2. KO-Prognose (wenn KO-Spiele vorhanden)
+      // 2. Speichert berechneten KO-Verlauf in die Prognose-Tabelle
       if (Object.keys(koByRound).length > 0) {
         await updateKOPrognosisDB(player.id, phaseId, koByRound, tips, tournamentContext);
       }
-    };
+      console.log("DB Prognose-Update ausgeführt!");
+    }, 500);
 
-    runUpdates();
+    return () => clearTimeout(handler);
   }, [tips, phaseId, player?.id, allGroupsArray, bestThirds, koByRound]);
 
-  // --- RENDER HELPERS ---
+  // --- RENDER-HELPER ---
+  
+  // Zeichnet eine einzelne Team-Zeile innerhalb der Phase 5 Matrix
   const renderMatrixTeamRow = (teamName, side, isFirst, winningSide) => {
     const isWinner = winningSide === side;
     return (
@@ -237,15 +267,16 @@ function TippsPage({ player, phaseId }) {
     );
   };
 
+  // Zeichnet die Spezial-Matrix für Phase 5 (Finale-Varianten)
   const renderPhase5Matrix = () => {
     const h1 = koByRound[4]?.[0];
     const h2 = koByRound[4]?.[1];
     if (!h1 || !h2) return null;
     const semiFinalsComplete = tips[h1.id] && tips[h2.id];
     const options = [
-      { id: 2, fA: getSHVH(h1, "SH"), fB: getSHVH(h2, "VH"), sA: getSHVH(h1, "VH"), sB: getSHVH(h2, "SH") },
-      { id: 3, fA: getSHVH(h1, "VH"), fB: getSHVH(h2, "SH"), sA: getSHVH(h1, "SH"), sB: getSHVH(h2, "VH") },
-      { id: 4, fA: getSHVH(h1, "VH"), fB: getSHVH(h2, "VH"), sA: getSHVH(h1, "SH"), sB: getSHVH(h2, "SH") }
+      { id: 2, fA: getWLphase5(h1, "SH"), fB: getWLphase5(h2, "VH"), sA: getWLphase5(h1, "VH"), sB: getWLphase5(h2, "SH") },
+      { id: 3, fA: getWLphase5(h1, "VH"), fB: getWLphase5(h2, "SH"), sA: getWLphase5(h1, "SH"), sB: getWLphase5(h2, "VH") },
+      { id: 4, fA: getWLphase5(h1, "VH"), fB: getWLphase5(h2, "VH"), sA: getWLphase5(h1, "SH"), sB: getWLphase5(h2, "SH") }
     ];
 
     return (
@@ -290,23 +321,22 @@ function TippsPage({ player, phaseId }) {
     );
   };
 
-  // --- DB HILFSFUNKTIONEN ---
+  // --- DB UPDATER FUNKTIONEN (INTERNAL) ---
+  
+  // Schreibt die aktuelle Gruppentabelle in 'user_prognosis_group'
   async function updateGroupPrognosisDB(playerId, groupsArr, bestThirdsTeams) {
     const records = groupsArr.map(g => ({
-      player_id: playerId,
-      group_name: g.id,
-      rank_1: g.teams[0]?.team || null,
-      rank_2: g.teams[1]?.team || null,
-      rank_3: g.teams[2]?.team || null,
-      rank_4: g.teams[3]?.team || null,
+      player_id: playerId, group_name: g.id,
+      rank_1: g.teams[0]?.team || null, rank_2: g.teams[1]?.team || null,
+      rank_3: g.teams[2]?.team || null, rank_4: g.teams[3]?.team || null,
       reached_ko: [g.teams[0]?.team, g.teams[1]?.team].filter(Boolean),
-      reached_ko_best_thirds: bestThirdsTeams,
-      dropped_out: [g.teams[3]?.team].filter(Boolean)
+      reached_ko_best_thirds: bestThirdsTeams, dropped_out: [g.teams[3]?.team].filter(Boolean)
     }));
     const { error } = await supabase.from("user_prognosis_group").upsert(records, { onConflict: 'player_id, group_name' });
     if (error) console.error("Fehler user_prognosis_group:", error.message);
   }
 
+  // Berechnet und schreibt den kompletten KO-Pfad in 'user_prognosis_ko'
   async function updateKOPrognosisDB(playerId, phId, koData, currentTips, context) {
     const currentId = Number(phId);
 
@@ -342,8 +372,7 @@ function TippsPage({ player, phaseId }) {
     const r3placeMatch = koData[5]?.[1];
 
     const finalRecord = {
-      player_id: playerId,
-      phase_id: currentId,
+      player_id: playerId, phase_id: currentId,
       reached_16: (currentId >= 2) ? [] : r16.flatMap((_, i) => [getPrognosisTeam(0, i, "A"), getPrognosisTeam(0, i, "B")]).filter(Boolean),
       reached_8:  (currentId >= 3) ? [] : r8.flatMap((_, i) => [getPrognosisTeam(1, i, "A"), getPrognosisTeam(1, i, "B")]).filter(Boolean),
       reached_4:  (currentId >= 4) ? [] : r4.flatMap((_, i) => [getPrognosisTeam(2, i, "A"), getPrognosisTeam(2, i, "B")]).filter(Boolean),
@@ -362,12 +391,14 @@ function TippsPage({ player, phaseId }) {
     if (error) console.error(`DB-Fehler Phase ${currentId}:`, error.message);
   }
 
+  // --- HAUPT-RENDER-METHODE ---
   if (!player || !phaseId) return <div style={{ padding: "20px" }}>Lade Benutzerdaten...</div>;
 
   return (
     <div style={{ padding: "20px", width: "100%", overflowX: "auto" }}>
       {showContent ? (
         <div style={{ display: "flex", flexDirection: "row", gap: "40px", alignItems: "flex-start" }}>
+          {/* GRUPPENPHASE (Linke Seite, nur Phase 1) */}
           {Number(phaseId) === 1 && (
             <div style={{ flexShrink: 0, width: "fit-content" }}>
               <div ref={groupRef}>
@@ -383,6 +414,7 @@ function TippsPage({ player, phaseId }) {
               </div>
             </div>
           )}
+          {/* KO-PHASE & BAUM (Rechte Seite / Hauptinhalt) */}
           <div style={{ flexGrow: 1 }}>
             <h3 style={{ marginLeft: "20px" }}>KO-Phase</h3>
             <div style={{ display: "flex", flexDirection: "row", alignItems: "flex-start" }}>
@@ -391,7 +423,7 @@ function TippsPage({ player, phaseId }) {
             </div>
           </div>
         </div>
-      ) : <div style={{ padding: "100px", textAlign: "center", color: "#94a3b8" }}></div>}
+      ) : <div style={{ padding: "100px", textAlign: "center", color: "#94a3b8" }}>Die Tippabgabe ist aktuell gesperrt.</div>}
     </div>
   );
 }

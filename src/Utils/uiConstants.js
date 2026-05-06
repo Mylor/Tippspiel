@@ -1,4 +1,8 @@
-// --- TURNIER-STRUKTUR & NAMEN ---
+/**
+ * TURNIER-STRUKTUR
+ * Definiert, welche Gruppen-Positionen im Achtelfinale aufeinandertreffen.
+ * "1E", "1I" etc. sind die Platzhalter für die qualifizierten Gruppendritten.
+ */
 export const KO_STRUCTURE = {
   round16: [
     ["E1", "1E"], ["I1", "1I"], ["F1", "C2"], ["B2", "A2"],
@@ -12,7 +16,10 @@ export const ROUND_NAMES = {
   1: "Sechzehntelfinale", 2: "Achtelfinale", 3: "Viertelfinale", 4: "Halbfinale", 5: "Finale" 
 };
 
-// Wichtig: Nur eine Definition für PHASE_HEIGHTS behalten!
+/**
+ * UI-METRIKEN
+ * Diese Werte steuern das visuelle "Wachstum" des Turnierbaums.
+ */
 export const PHASE_HEIGHTS = { 
   1: "4000px", 
   2: "3300px", 

@@ -1,36 +1,42 @@
 // src/utils/calcTable.js
 
 /**
- * Berechnet die Gruppendritten und sortiert sie korrekt.
- * @param {Array} allGroups - Alle Gruppenobjekte
- * @param {Object} manualRanks - Das Objekt mit den Stichwahl-Rängen { "TeamName": 1 }
+ * getBestThirds: Erstellt eine Rangliste der Drittplatzierten über alle Gruppen hinweg.
+ * @param {Array} allGroups - Array aller Gruppen (A-L), jede Gruppe enthält ihr Team-Ranking.
+ * @param {Object} manualRanks - Optionales Objekt für Stichwahlen (z.B. Fairplay-Wertung).
  */
 export function getBestThirds(allGroups, manualRanks = {}) {
+  // 1. SCHRITT: Alle Drittplatzierten einsammeln
   const thirds = allGroups.map((group) => {
-    // Sicherstellen, dass wir das Team auf Platz 3 (Index 2) bekommen
+    // Wir nehmen das Team an Index 2 (der 3. Platz in einer sortierten Gruppe)
     const thirdPlaceTeam = group.teams && group.teams[2]; 
+    
+    // Falls die Gruppe noch nicht berechnet wurde oder das Team fehlt, überspringen
     if (!thirdPlaceTeam) return null;
 
+    // Wir extrahieren nur die für den Vergleich relevanten Daten
     return {
       team: thirdPlaceTeam.team,
       points: thirdPlaceTeam.points || 0,
-      goals: thirdPlaceTeam.goals || thirdPlaceTeam.goalsFor || 0,
+      goals: thirdPlaceTeam.goals || thirdPlaceTeam.goalsFor || 0, // Flexibel bei Property-Namen
       diff: thirdPlaceTeam.diff !== undefined ? thirdPlaceTeam.diff : (thirdPlaceTeam.goalDiff || 0),
-      group: group.id 
+      group: group.id // Wichtig für das spätere Mapping (z.B. "A", "B"...)
     };
-  }).filter(Boolean);
+  }).filter(Boolean); // Entfernt alle null-Werte (falls Gruppen unvollständig waren)
 
+  // 2. SCHRITT: Die Dritten-Tabelle nach FIFA-Kriterien sortieren
   return thirds.sort((a, b) => {
-    // 1. Punkte (höher ist besser)
+    // Kriterium 1: Punkte (Absteigend)
     if (b.points !== a.points) return b.points - a.points;
     
-    // 2. Tordifferenz (höher ist besser)
+    // Kriterium 2: Tordifferenz (Absteigend)
     if (b.diff !== a.diff) return b.diff - a.diff;
     
-    // 3. Erzielte Tore (höher ist besser)
+    // Kriterium 3: Erzielte Tore (Absteigend)
     if (b.goals !== a.goals) return b.goals - a.goals;
     
-    // 4. Stichwahl / Manual Ranks (niedrigerer Rang ist besser, z.B. 1 vor 2)
+    // Kriterium 4: Stichwahl / Manueller Rang (Aufsteigend, da 1 besser ist als 2)
+    // parseInt stellt sicher, dass wir mit Zahlen vergleichen, auch wenn Strings kommen.
     const rankA = manualRanks[a.team] ? parseInt(manualRanks[a.team]) : 99;
     const rankB = manualRanks[b.team] ? parseInt(manualRanks[b.team]) : 99;
     
@@ -38,7 +44,7 @@ export function getBestThirds(allGroups, manualRanks = {}) {
       return rankA - rankB;
     }
 
-    // Optionaler Fallback: Alphabetisch, damit die Liste stabil bleibt
+    // Kriterium 5: Alphabetischer Fallback (Sorgt für eine stabile UI ohne Flackern)
     return a.team.localeCompare(b.team);
   });
 }

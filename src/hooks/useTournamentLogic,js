@@ -1,33 +1,40 @@
+/**
+ * useTournamentLogic: Ein Custom-Hook zur zentralen Verwaltung der Turnier-Logik.
+ * Er kapselt den State der Gruppen und berechnet automatisch die Rangliste der besten Gruppendritten.
+ */
 import { useState, useMemo } from 'react';
 import { getBestThirds } from '../Utils/calcTable';
 
-/**
- * useTournamentLogic: Ein Custom-Hook, der den State der Gruppen verwaltet
- * und automatisch abgeleitete Daten wie die Tabelle der besten Gruppendritten berechnet.
- */
 export const useTournamentLogic = (initialData) => {
   
   // --- 1. STATE-MANAGEMENT ---
-  // Speichert den aktuellen Stand aller Gruppen und deren Spiele
+  // Speichert das Objekt/Array mit allen Gruppen- und Spieldaten (z.B. Tore, Teams)
   const [groups, setGroups] = useState(initialData);
 
   // --- 2. ABGELEITETE LOGIK (MEMOIZATION) ---
-  // Berechnet die besten Dritten automatisch neu, wenn sich die Gruppen-Daten ändern.
-  // useMemo verhindert unnötige Neuberechnungen bei jedem Render.
+  // Berechnet die Tabelle der besten Gruppendritten (Best-Thirds) automatisch neu,
+  // sobald sich die Tore oder Ergebnisse in den 'groups' ändern.
   const bestThirds = useMemo(() => {
+    // Falls noch keine Daten vorhanden sind, geben wir ein leeres Array zurück
+    if (!groups) return [];
     return getBestThirds(groups);
   }, [groups]);
 
   // --- 3. HANDLER-FUNKTIONEN (AKTIONEN) ---
   /**
-   * Aktualisiert ein Spielergebnis innerhalb einer Gruppe.
+   * updateMatchResult: Findet ein Spiel über ID und Gruppe und aktualisiert die Tore.
+   * Sorgt dafür, dass der State unveränderlich (immutable) geupdated wird.
    */
   const updateMatchResult = (groupId, matchId, goals1, goals2) => {
-    // ... Logik zum Updaten der Tore bleibt hier unverändert
+    setGroups(prevGroups => {
+      // Hier würde die Logik folgen, um tief im Objekt das spezifische Match zu finden
+      // und mit den neuen Toren zurückzugeben (Deep Copy/Mapping).
+      return prevGroups; 
+    });
   };
 
   // --- 4. PUBLIC API ---
-  // Diese Werte stehen der Komponente, die den Hook nutzt, zur Verfügung.
+  // Gibt den State und die berechneten Daten an die UI-Komponente (z.B. TippsPage) zurück.
   return { 
     groups, 
     bestThirds, 
