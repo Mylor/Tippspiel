@@ -27,22 +27,43 @@ const TREE_HEIGHT = 2000;
 function AdminResultsPage({ phaseId, onUpdate }) {
   const [matches, setMatches] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [manualRanks, setManualRanks] = useState({}); 
   const groupRef = useRef(null);
 
   useEffect(() => {
-    fetchMatches();
+    fetchData();
   }, [phaseId]);
 
-  async function fetchMatches() {
+  async function fetchData() {
     setLoading(true);
-    const { data } = await supabase.from("match").select("*").order("match_order", { ascending: true });
-    setMatches(data || []);
+    await Promise.all([fetchMatches(), fetchManualRanks()]);
     setLoading(false);
   }
 
-  /**
-   * Hilfsfunktion: Holt FIFA-Ränge und berechnet Basis-Punkte
-   */
+  async function fetchMatches() {
+    const { data } = await supabase.from("match").select("*").order("match_order", { ascending: true });
+    setMatches(data || []);
+  }
+
+  async function fetchManualRanks() {
+    const { data } = await supabase.from("real_manual_rank").select("*");
+    const rankMap = {};
+    data?.forEach((r) => (rankMap[r.team_name] = r.manual_rank));
+    setManualRanks(rankMap);
+  }
+
+  async function saveAdminManualRank(teamName, rank) {
+    const val = rank === "" ? null : Number(rank);
+    const { error } = await supabase
+      .from("real_manual_rank")
+      .upsert([{ team_name: teamName, manual_rank: val }], { onConflict: 'team_name' });
+
+    if (error) return console.error("Admin Rank Error:", error.message);
+    
+    setManualRanks(prev => ({ ...prev, [teamName]: val }));
+    fetchMatches(); 
+  }
+
   async function fetchWinnerPoints(teamA, teamB) {
     const { data: teams } = await supabase
       .from('teams')
@@ -50,16 +71,11 @@ function AdminResultsPage({ phaseId, onUpdate }) {
       .in('name', [teamA, teamB]);
 
     if (!teams || teams.length < 2) return 4;
-
     const rankA = teams.find(t => t.name === teamA)?.fifa_rank || 50;
     const rankB = teams.find(t => t.name === teamB)?.fifa_rank || 50;
-    
     return getDynamicWinnerPoints(rankA, rankB);
   }
 
-  /**
-   * Kern-Funktion: Speichert Ergebnis und berechnet Punkte für ALLE User
-   */
   async function saveRealResult(matchId, goalsA, goalsB, winner) {
   if (goalsA === "" || goalsB === "") return;
 
@@ -71,37 +87,29 @@ function AdminResultsPage({ phaseId, onUpdate }) {
   else if (gB > gA) finalWinner = 2;
   if (gA === gB && winner) finalWinner = Number(winner);
 
-  // 1. Reales Ergebnis im Match speichern
+  // 1. Das Spiel in der DB speichern
   const { error: matchError } = await supabase
     .from("match")
-    .update({
-      goals_a_real: gA,
-      goals_b_real: gB,
-      winner_real: finalWinner
-    })
+    .update({ goals_a_real: gA, goals_b_real: gB, winner_real: finalWinner })
     .eq("id", matchId);
     
   if (matchError) return console.error("Match Update Error:", matchError.message);
 
-  // --- NEU: TURNIERSTATUS SYNCHRONISIEREN ---
-  // Wir laden alle Matches neu, um den aktuellen Gesamtzustand zu haben
+  // 2. Frische Daten holen für die weiteren Berechnungen
   const { data: allMatches } = await supabase.from("match").select("*").order("match_order");
   const currentMatch = allMatches.find(m => m.id === matchId);
 
-  // Diese Funktion (aus dem vorherigen Schritt) befüllt real_group_state & real_ko_state
-  await syncRealTournamentState(allMatches, currentMatch.group_name);
-  // ------------------------------------------
+  // 3. Nur wenn es ein Gruppenspiel war, synchronisieren wir den Tabellenstand
+  if (currentMatch.stage === "group") {
+    await syncRealTournamentState(allMatches, currentMatch.group_name);
+  }
 
-  // 2. Match-Daten für FIFA-Ranking (Basis-Punkte für den Sieg)
+  // 4. Punkte-Berechnung für das Spiel (Tipps der User)
   const winnerPoints = await fetchWinnerPoints(currentMatch.team_a, currentMatch.team_b);
-
-  // 3. Tipps aus Tabelle "tip" laden
   const { data: allTips } = await supabase.from("tip").select("*").eq("match_id", matchId);
 
-  // 4. Alte Punkte-Details für dieses Spiel löschen (auch Prognose-Punkte dieses Matches, falls vorhanden)
   await supabase.from("user_points_detail").delete().eq("match_id", matchId);
 
-  // 5. Match-Punkte für jeden User berechnen
   if (allTips && allTips.length > 0) {
     const pointsToInsert = allTips.map(t => {
       const result = calculateDetailedMatchPoints(
@@ -114,27 +122,22 @@ function AdminResultsPage({ phaseId, onUpdate }) {
         player_id: t.player_id,
         match_id: matchId,
         phase_id: phaseId,
-        group_name: currentMatch.group_name,
+        group_name: currentMatch.group_name || "KO",
         points_total: result.total,
         breakdown: result.breakdown,
         category: 'MATCH',
         is_prognosis: false
       };
     });
-
     await supabase.from("user_points_detail").insert(pointsToInsert);
   }
 
-  // --- NEU: PROGNOSE- & TABELLENPUNKTE VERGEBEN ---
-  // Jetzt prüfen wir, ob durch dieses Match Gruppen fertig wurden oder KO-Runden erreicht wurden
+  // 5. Prognose-Punkte (Einzug 16tel Finale etc.) triggern
   await processPrognosisPoints(allMatches, currentMatch);
-  // -----------------------------------------------
 
-  if (onUpdate) {
-    onUpdate();
-  }
-
-  fetchMatches(); // UI aktualisieren
+  // 6. UI Update
+  if (onUpdate) onUpdate();
+  await fetchMatches(); // Das hier triggert das Re-Render der UI
 }
 
   if (loading) return <div style={{ padding: "20px" }}>Lade Admin-Daten...</div>;
@@ -169,11 +172,17 @@ function AdminResultsPage({ phaseId, onUpdate }) {
 
     return {
       id: groupName,
-      teams: calculateTable(groupMatches, tipsForCalc)
+      teams: calculateTable(groupMatches, tipsForCalc, manualRanks)
     };
   });
 
-  const bestThirds = getBestThirds(allGroupsArray);
+  // --- NEU: LOGIK FÜR FREISCHALTUNG DER MANUELLEN RÄNGE ---
+  // 1. Alle Gruppenspiele insgesamt prüfen (für Best-Thirds)
+  const allGroupGamesFinished = matches
+    .filter(m => m.stage === "group")
+    .every(m => m.goals_a_real !== null && m.goals_b_real !== null);
+
+  const bestThirds = getBestThirds(allGroupsArray, manualRanks);
   const groupResults = {};
   allGroupsArray.forEach(g => { groupResults[g.id] = g.teams.map(t => t.team); });
 
@@ -198,19 +207,35 @@ function AdminResultsPage({ phaseId, onUpdate }) {
     <div style={{ display: "flex", gap: "50px", padding: "20px", width: "max-content" }}>
       <div ref={groupRef} style={{ flex: "0 0 auto" }}>
         <h2 style={{ color: "#dc2626" }}>Admin: Gruppen</h2>
-        {Object.keys(grouped).sort().map(name => (
-          <GroupTable 
-            key={name} 
-            groupName={name} 
-            matches={grouped[name]} 
-            tips={realResultsAsTips} 
-            tableData={allGroupsArray.find(g => g.id === name)?.teams || []} 
-            onSaveTip={saveRealResult} 
-            isSubmitted={false}
-            isAdmin={true} 
-          />
-        ))}
-        <BestThirdsTable teams={bestThirds} />
+        {Object.keys(grouped).sort().map(name => {
+          const groupMatches = grouped[name];
+          // 2. Prüfen, ob alle 6 Spiele dieser spezifischen Gruppe fertig sind
+          const groupFinished = groupMatches.every(m => 
+            m.goals_a_real !== null && m.goals_b_real !== null
+          );
+
+          return (
+            <GroupTable 
+              key={name} 
+              groupName={name} 
+              matches={groupMatches} 
+              tips={realResultsAsTips} 
+              tableData={allGroupsArray.find(g => g.id === name)?.teams || []} 
+              onSaveTip={saveRealResult} 
+              isSubmitted={false}
+              isAdmin={true} 
+              manualRanks={manualRanks}
+              // Nur übergeben, wenn Gruppe fertig ist
+              onSaveManualRank={groupFinished ? saveAdminManualRank : null}
+            />
+          );
+        })}
+        <BestThirdsTable 
+          teams={bestThirds} 
+          manualRanks={manualRanks}
+          // Nur übergeben, wenn das komplette Turnier (Gruppenphase) fertig ist
+          onSaveManualRank={allGroupGamesFinished ? saveAdminManualRank : null}
+        />
       </div>
 
       <div style={{ flex: "1", minWidth: "fit-content" }}>

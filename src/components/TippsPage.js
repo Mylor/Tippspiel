@@ -325,13 +325,32 @@ function TippsPage({ player, phaseId }) {
   
   // Schreibt die aktuelle Gruppentabelle in 'user_prognosis_group'
   async function updateGroupPrognosisDB(playerId, groupsArr, bestThirdsTeams) {
-    const records = groupsArr.map(g => ({
-      player_id: playerId, group_name: g.id,
-      rank_1: g.teams[0]?.team || null, rank_2: g.teams[1]?.team || null,
-      rank_3: g.teams[2]?.team || null, rank_4: g.teams[3]?.team || null,
-      reached_ko: [g.teams[0]?.team, g.teams[1]?.team].filter(Boolean),
-      reached_ko_best_thirds: bestThirdsTeams, dropped_out: [g.teams[3]?.team].filter(Boolean)
-    }));
+    const records = groupsArr.map(g => {
+      const groupFourth = g.teams[3]?.team;
+      const groupThird = g.teams[2]?.team;
+
+      // Initial ist der Gruppen-Vierte immer raus
+      let finalDroppedOut = [groupFourth].filter(Boolean);
+
+      // Logik für den Gruppendritten:
+      // Wenn es einen Dritten gibt UND dieser NICHT in der Liste der 8 besten Dritten des Users ist
+      if (groupThird && !bestThirdsTeams.includes(groupThird)) {
+        finalDroppedOut.push(groupThird);
+      }
+
+      return {
+        player_id: playerId, 
+        group_name: g.id,
+        rank_1: g.teams[0]?.team || null, 
+        rank_2: g.teams[1]?.team || null,
+        rank_3: g.teams[2]?.team || null, 
+        rank_4: g.teams[3]?.team || null,
+        reached_ko: [g.teams[0]?.team, g.teams[1]?.team].filter(Boolean),
+        reached_ko_best_thirds: bestThirdsTeams, 
+        dropped_out: finalDroppedOut // Hier sind jetzt ggf. 2 Teams drin
+      };
+    });
+
     const { error } = await supabase.from("user_prognosis_group").upsert(records, { onConflict: 'player_id, group_name' });
     if (error) console.error("Fehler user_prognosis_group:", error.message);
   }

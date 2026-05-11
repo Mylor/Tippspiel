@@ -6,9 +6,9 @@ export const POINTS_CONFIG = {
   MATCH_DIFF: 2,
   MATCH_GOALS_SINGLE: 1,
   MATCH_GOALS_SUM: 1,
-  BONUS_EXACT_LOW: 3,  // Summe 0-3
-  BONUS_EXACT_MID: 4,  // Summe 4-6
-  BONUS_EXACT_HIGH: 5, // Summe 7+
+  BONUS_EXACT_LOW: 3,   // Summe 0-3
+  BONUS_EXACT_MID: 4,   // Summe 4-6
+  BONUS_EXACT_HIGH: 5,  // Summe 7+
 
   // Prognosen / Finalrunde
   PROG_REACH_16: 5,
@@ -37,10 +37,8 @@ export const POINTS_CONFIG = {
 
 /**
  * BERECHNET DETAILLIERTE PUNKTE FÜR EIN SPIEL
- * Gibt ein Objekt mit Summe und Aufschlüsselung zurück.
  */
 export const calculateDetailedMatchPoints = (tip, actual, winnerPoints) => {
-  // Initialer Breakdown für die Statistik
   const breakdown = {
     winner: 0,
     diff: 0,
@@ -59,29 +57,24 @@ export const calculateDetailedMatchPoints = (tip, actual, winnerPoints) => {
   const aA = Number(actual.goals_a);
   const aB = Number(actual.goals_b);
 
-  // 1. Richtiger Sieger (Tendenz)
-  const tipWinner = tA > tB ? "1" : tA < tB ? "2" : String(tip.winner);
-  const actualWinner = aA > aB ? "1" : aA < aB ? "2" : String(actual.winner);
-  
-  if (tipWinner === actualWinner && tipWinner !== "0") {
+  const tipWinner = tA > tB ? "1" : tA < tB ? "2" : "0";
+  const actualWinner = aA > aB ? "1" : aA < aB ? "2" : "0";
+
+  if (tipWinner === actualWinner) {
     breakdown.winner = winnerPoints;
   }
 
-  // 2. Tordifferenz
   if ((tA - tB) === (aA - aB)) {
     breakdown.diff = POINTS_CONFIG.MATCH_DIFF;
   }
 
-  // 3. Einzelne Tore
   if (tA === aA) breakdown.goals_a = POINTS_CONFIG.MATCH_GOALS_SINGLE;
   if (tB === aB) breakdown.goals_b = POINTS_CONFIG.MATCH_GOALS_SINGLE;
 
-  // 4. Gesamtsumme Tore
   if ((tA + tB) === (aA + aB)) {
     breakdown.sum = POINTS_CONFIG.MATCH_GOALS_SUM;
   }
 
-  // 5. Bonus für komplett richtiges Ergebnis
   if (tA === aA && tB === aB) {
     const totalGoals = aA + aB;
     if (totalGoals <= 3) breakdown.exact_bonus = POINTS_CONFIG.BONUS_EXACT_LOW;
@@ -89,9 +82,7 @@ export const calculateDetailedMatchPoints = (tip, actual, winnerPoints) => {
     else breakdown.exact_bonus = POINTS_CONFIG.BONUS_EXACT_HIGH;
   }
 
-  // Gesamtsumme berechnen
   const total = Object.values(breakdown).reduce((acc, val) => acc + val, 0);
-
   return { total, breakdown };
 };
 
@@ -107,19 +98,14 @@ export const getDynamicWinnerPoints = (rankA, rankB) => {
 
 /**
  * Vergleicht User-Prognosen mit dem realen Turnierstand und vergibt Punkte.
- * @param {Array} allMatches - Liste aller Matches aus der DB
- * @param {Object} currentMatch - Das gerade aktualisierte Match
  */
 export async function processPrognosisPoints(allMatches, currentMatch) {
-  // 1. SICHERHEITS-CHECK: Nur berechnen, wenn das Spiel wirklich beendet wurde
   if (currentMatch.goals_a_real === null || currentMatch.goals_b_real === null) {
-    console.log("Match noch nicht beendet, keine Prognose-Punkte-Berechnung.");
     return;
   }
 
   const { group_name, stage, stage_order } = currentMatch;
 
-  // 2. Holen der aktuellen "Wahrheit" aus den real_state Tabellen
   const { data: realGroup } = await supabase
     .from("real_group_state")
     .select("*")
@@ -135,10 +121,9 @@ export async function processPrognosisPoints(allMatches, currentMatch) {
   if (!realKO) return;
 
   const pointsEntries = [];
+  const real32 = realKO.reached_16 || []; // Der globale Pool der 32 realen Qualifikanten
 
-  // ---------------------------------------------------------
-  // A. GRUPPEN-PUNKTE (Nur wenn die Gruppe gerade fertig wurde)
-  // ---------------------------------------------------------
+  // A. GRUPPEN-PUNKTE
   if (stage === "group" && realGroup && realGroup.is_finished) {
     const { data: userGroupProgs } = await supabase
       .from("user_prognosis_group")
@@ -147,38 +132,46 @@ export async function processPrognosisPoints(allMatches, currentMatch) {
 
     if (userGroupProgs) {
       userGroupProgs.forEach(prog => {
-        // 1. Check Table Positions (Rank 1-4)
-        ['rank_1', 'rank_2', 'rank_3', 'rank_4'].forEach((rankKey, idx) => {
+        // 1. Exakte Tabellenpositionen (Platz 1-4) - Bleibt gleich
+        ['rank_1', 'rank_2', 'rank_3', 'rank_4'].forEach((rankKey) => {
           if (prog[rankKey] === realGroup[rankKey] && realGroup[rankKey] !== null) {
-            pointsEntries.push(createPointEntry(prog.player_id, 'GROUP_RANK', POINTS_CONFIG.PROG_TABLE_POS, prog[rankKey], 1));
+            pointsEntries.push(createPointEntry(prog.player_id, 'GROUP_RANK', POINTS_CONFIG.PROG_TABLE_POS, prog[rankKey], 1, group_name));
           }
         });
 
-        // 2. Check Reached KO
-        prog.reached_ko?.forEach(team => {
-          if (realGroup.reached_ko?.includes(team)) {
-            pointsEntries.push(createPointEntry(prog.player_id, 'PROGNOSIS_PATH', POINTS_CONFIG.PROG_REACH_16, team, 1));
+        // 2. Erreichen des 16tel-Finales (NUR FÜR TEAMS DIESER GRUPPE)
+        // Wir holen die Teams, die REAL in dieser Gruppe unter den Top 3 gelandet sind
+        const realTeamsInThisGroup = [realGroup.rank_1, realGroup.rank_2, realGroup.rank_3].filter(Boolean);
+
+        const userQualifiersFromGroup = [
+          ...(prog.reached_ko || []),
+          ...(prog.reached_ko_best_thirds || [])
+        ];
+
+        userQualifiersFromGroup.forEach(team => {
+          // KORREKTUR: Das Team bekommt NUR Punkte, wenn es 
+          // a) im globalen 32er Pool ist UND 
+          // b) real aus genau dieser Gruppe stammt
+          if (real32.includes(team) && realTeamsInThisGroup.includes(team)) {
+            pointsEntries.push(createPointEntry(prog.player_id, 'PROGNOSIS_PATH', POINTS_CONFIG.PROG_REACH_16, team, 1, group_name));
           }
         });
 
-        // 3. Check Out Vorrunde (Platz 4)
+        // 3. Ausscheiden (Dropped Out) - Bleibt gleich
         prog.dropped_out?.forEach(team => {
           if (realGroup.dropped_out?.includes(team)) {
-            pointsEntries.push(createPointEntry(prog.player_id, 'PROGNOSIS_PATH', POINTS_CONFIG.PROG_OUT_VORRUNDE, team, 1));
+            pointsEntries.push(createPointEntry(prog.player_id, 'PROGNOSIS_PATH', POINTS_CONFIG.PROG_OUT_VORRUNDE, team, 1, group_name));
           }
         });
       });
     }
   }
 
-  // ---------------------------------------------------------
-  // B. KO-PHASEN PUNKTE (Check bei jedem KO-Spiel)
-  // ---------------------------------------------------------
+  // B. KO-PHASEN PUNKTE
   if (stage === "ko" && currentMatch.winner_real !== 0) {
     const { data: userKOProgs } = await supabase.from("user_prognosis_ko").select("*");
 
     if (userKOProgs) {
-      // Mapping: Welches Match-Level schaltet welche Punkte frei?
       const roundMapping = {
         1: { realKey: 'reached_16', progKey: 'reached_16', pts: POINTS_CONFIG.PROG_REACH_16, dropKey: 'drop_out_16', dropPts: POINTS_CONFIG.PROG_OUT_16 },
         2: { realKey: 'reached_8',  progKey: 'reached_8',  pts: POINTS_CONFIG.PROG_REACH_8,  dropKey: 'drop_out_8',  dropPts: POINTS_CONFIG.PROG_OUT_8 },
@@ -191,23 +184,20 @@ export async function processPrognosisPoints(allMatches, currentMatch) {
 
       if (activeRound) {
         userKOProgs.forEach(prog => {
-          // Check: Wer ist weitergekommen?
           if (Array.isArray(realKO[activeRound.realKey])) {
             prog[activeRound.progKey]?.forEach(team => {
               if (realKO[activeRound.realKey].includes(team)) {
-                pointsEntries.push(createPointEntry(prog.player_id, 'PROGNOSIS_PATH', activeRound.pts, team, stage_order));
+                pointsEntries.push(createPointEntry(prog.player_id, 'PROGNOSIS_PATH', activeRound.pts, team, stage_order, "KO"));
               }
             });
           } else if (realKO[activeRound.realKey] === prog[activeRound.progKey] && realKO[activeRound.realKey] !== null) {
-            // Spezialfall Weltmeister (kein Array)
-            pointsEntries.push(createPointEntry(prog.player_id, 'PROGNOSIS_PATH', activeRound.pts, realKO[activeRound.realKey], stage_order));
+            pointsEntries.push(createPointEntry(prog.player_id, 'PROGNOSIS_PATH', activeRound.pts, realKO[activeRound.realKey], stage_order, "KO"));
           }
 
-          // Check: Wer ist ausgeschieden?
           if (activeRound.dropKey && prog[activeRound.progKey]) {
              prog[activeRound.dropKey]?.forEach(team => {
                 if (realKO[activeRound.dropKey]?.includes(team)) {
-                   pointsEntries.push(createPointEntry(prog.player_id, 'PROGNOSIS_PATH', activeRound.dropPts, team, stage_order));
+                   pointsEntries.push(createPointEntry(prog.player_id, 'PROGNOSIS_PATH', activeRound.dropPts, team, stage_order, "KO"));
                 }
              });
           }
@@ -216,51 +206,39 @@ export async function processPrognosisPoints(allMatches, currentMatch) {
     }
   }
 
-  // ---------------------------------------------------------
   // C. SPEICHERN & CLEANUP
-  // ---------------------------------------------------------
+  if (stage === "group" && realGroup?.is_finished) {
+    await supabase.from("user_points_detail")
+      .delete()
+      .eq("group_name", group_name)
+      .eq("is_prognosis", true)
+      .in("category", ["GROUP_RANK", "PROGNOSIS_PATH"]);
+  }
+
+  if (stage === "ko") {
+    await supabase.from("user_points_detail")
+      .delete()
+      .eq("category", "PROGNOSIS_PATH")
+      .eq("phase_id", stage_order)
+      .eq("is_prognosis", true);
+  }
+
+  // Nur wenn wir tatsächlich neue Punkte zum Eintragen haben
   if (pointsEntries.length > 0) {
-    // 1. Lösche alte Prognose-Punkte für diesen spezifischen Kontext
-    if (stage === "group" && realGroup?.is_finished) {
-      await supabase.from("user_points_detail")
-        .delete()
-        .eq("category", "GROUP_RANK")
-        .eq("phase_id", 1)
-        .eq("is_prognosis", true);
-        
-      // Auch die PATH-Punkte der Gruppe (Weiterkommen/Ausscheiden)
-      await supabase.from("user_points_detail")
-        .delete()
-        .eq("category", "PROGNOSIS_PATH")
-        .eq("phase_id", 1)
-        .eq("is_prognosis", true);
-    }
-
-    if (stage === "ko") {
-      await supabase.from("user_points_detail")
-        .delete()
-        .eq("category", "PROGNOSIS_PATH")
-        .eq("phase_id", stage_order)
-        .eq("is_prognosis", true);
-    }
-
-    // 2. Neue Punkte einfügen
     const { error } = await supabase.from("user_points_detail").insert(pointsEntries);
     if (error) console.error("Fehler beim Speichern der Prognose-Punkte:", error.message);
   }
 }
 
-/**
- * Hilfsfunktion zum Erstellen eines konsistenten Punkte-Objekts
- */
-function createPointEntry(playerId, category, points, team, phase) {
+function createPointEntry(playerId, category, points, team, phase, groupName) {
   return {
     player_id: playerId,
     category: category,
     points_total: points,
     reference_team: team,
     phase_id: phase,
+    group_name: groupName, 
     is_prognosis: true,
-    breakdown: { info: `Automatische Vergabe: ${category} für ${team}` }
+    breakdown: { info: `Automatische Vergabe: ${category} für ${team} (Gruppe ${groupName})` }
   };
 }

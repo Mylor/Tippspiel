@@ -16,51 +16,73 @@ export async function syncRealTournamentState(matches, groupName = null) {
     };
   });
 
-  // 2. GRUPPEN-UPDATE (Falls ein Gruppenspiel gespeichert wurde)
-  if (groupName) {
-    const groupMatches = matches.filter(m => m.group_name === groupName);
-    const table = calculateFIFADataTable(groupMatches, realTips);
-    
-    // Prüfen, ob Gruppe fertig (z.B. 6 Spiele bei 4 Teams)
-    const finishedMatchesCount = groupMatches.filter(m => m.goals_a_real !== null).length;
-    // Dynamische Prüfung: Eine Gruppe ist fertig, wenn alle ihre Spiele Ergebnisse haben
-    const isFinished = finishedMatchesCount > 0 && finishedMatchesCount === groupMatches.length;
-
-    const record = {
-      group_name: groupName,
-      rank_1: isFinished ? (table[0]?.team || null) : null,
-      rank_2: isFinished ? (table[1]?.team || null) : null,
-      rank_3: isFinished ? (table[2]?.team || null) : null,
-      rank_4: isFinished ? (table[3]?.team || null) : null,
-      reached_ko: isFinished ? table.slice(0, 2).map(t => t.team) : [], 
-      dropped_out: isFinished && table[3] ? [table[3].team] : [],
-      is_finished: isFinished
-    };
-
-    await supabase.from("real_group_state").upsert(record);
-  }
-
-  // 3. BEST THIRDS & KO-TEAMS
+  // 2. BASIS-DATEN FÜR ALLE GRUPPEN BERECHNEN
   const allGroups = [...new Set(matches.filter(m => m.stage === "group").map(m => m.group_name))];
   const allTables = allGroups.map(name => ({
     id: name,
     teams: calculateFIFADataTable(matches.filter(m => m.group_name === name), realTips)
   }));
 
-  // Beste Gruppendritte nur berechnen, wenn die Gruppenphasen auch beendet sind
-  const bestThirdsReal = getBestThirds(allTables).slice(0, 8).map(t => t.team);
+  // 3. BEST THIRDS & 32 QUALIFIER POOL BERECHNUNG
+  // Alle 12 Dritten nach FIFA-Kriterien sortieren
+  const allThirdsSorted = getBestThirds(allTables);
+  
+  // Die 8 besten Dritten (kommen weiter)
+  const best8ThirdsReal = allThirdsSorted.slice(0, 8).map(t => t.team);
+  
+  // Die 4 schlechtesten Dritten (scheiden aus)
+  const worst4ThirdsReal = allThirdsSorted.slice(8, 12).map(t => t.team);
 
-  // 4. KO-PHASEN UPDATE
+  // Echte Top 2 jeder Gruppe (24 Teams)
+  const top24Real = allTables.flatMap(t => t.teams.slice(0, 2).map(teamObj => teamObj.team));
+
+  // Der vollständige Pool der 32 Teams für reached_16
+  const finalReached16 = [...top24Real, ...best8ThirdsReal].filter(name => name && !name.includes("Placeholder"));
+
+  // 4. GRUPPEN-STATES AKTUALISIEREN (inkl. der neuen Dropped-Out Logik)
+  for (const groupData of allTables) {
+    const gName = groupData.id;
+    const table = groupData.teams;
+    const groupMatches = matches.filter(m => m.group_name === gName);
+    
+    const finishedMatchesCount = groupMatches.filter(m => m.goals_a_real !== null).length;
+    const isFinished = finishedMatchesCount > 0 && finishedMatchesCount === groupMatches.length;
+
+    if (isFinished) {
+      const groupFourth = table[3]?.team;
+      const groupThird = table[2]?.team;
+
+      // Sammelbecken für alle, die in dieser Gruppe ausscheiden
+      const finalDroppedOut = [];
+      if (groupFourth) finalDroppedOut.push(groupFourth);
+      
+      // Falls der Gruppendritte zu den 4 schlechtesten Dritten des Turniers gehört:
+      if (groupThird && worst4ThirdsReal.includes(groupThird)) {
+        finalDroppedOut.push(groupThird);
+      }
+
+      const record = {
+        group_name: gName,
+        rank_1: table[0]?.team || null,
+        rank_2: table[1]?.team || null,
+        rank_3: table[2]?.team || null,
+        rank_4: table[3]?.team || null,
+        reached_ko: table.slice(0, 2).map(t => t.team), 
+        dropped_out: finalDroppedOut, // Hier sind jetzt ggf. 2 Teams drin
+        is_finished: true
+      };
+
+      await supabase.from("real_group_state").upsert(record);
+    }
+  }
+
+  // 5. KO-PHASEN UPDATE
   const koMatches = matches.filter(m => m.stage === "ko");
   
-  // HILFSFUNKTION: Nur Teams aufnehmen, die durch ein beendetes Spiel feststehen
   const getTeamsByStage = (stageOrder) => {
     const stageMatches = koMatches.filter(m => m.stage_order === stageOrder);
     const teams = [];
     stageMatches.forEach(m => {
-      // Ein Team ist für diese Runde qualifiziert, wenn das VORGÄNGERSPIEL beendet wurde
-      // ODER (für die erste KO-Runde) wenn die Gruppenphase beendet ist.
-      // Wir prüfen hier: Hat das aktuelle Match der Runde bereits gesetzte Teams?
       if (m.team_a && !m.team_a.includes("Placeholder")) teams.push(m.team_a);
       if (m.team_b && !m.team_b.includes("Placeholder")) teams.push(m.team_b);
     });
@@ -73,7 +95,6 @@ export async function syncRealTournamentState(matches, groupName = null) {
       .map(m => m.winner_real === 1 ? m.team_b : m.team_a);
   };
 
-  // Finaler Sieger Check
   const finalMatch = koMatches.find(m => m.stage_order === 5);
   let winnerFinal = null;
   if (finalMatch && finalMatch.winner_real) {
@@ -82,7 +103,7 @@ export async function syncRealTournamentState(matches, groupName = null) {
 
   const realKOUpdate = {
     id: 1,
-    reached_16: getTeamsByStage(1),
+    reached_16: finalReached16, 
     reached_8:  getTeamsByStage(2),
     reached_4:  getTeamsByStage(3),
     reached_2:  getTeamsByStage(4),
