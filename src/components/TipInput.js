@@ -69,19 +69,37 @@ const TipInput = ({
    * Behandelt Änderungen an den Tore-Inputs (Zahlenfelder)
    */
   const handleInputChange = (val, field) => {
-    let newA = goalsA;
-    let newB = goalsB;
+  let newA = field === 'A' ? val : goalsA;
+  let newB = field === 'B' ? val : goalsB;
 
-    if (field === 'A') {
-      newA = val;
-      setGoalsA(val);
+  // 1. Lokalen State aktualisieren
+  if (field === 'A') setGoalsA(val);
+  else setGoalsB(val);
+
+  // 2. Automatische Sieger-Logik
+  let updatedWinner = winner; // Standardmäßig den alten behalten
+
+  const numA = parseInt(newA);
+  const numB = parseInt(newB);
+
+  if (!isNaN(numA) && !isNaN(numB)) {
+    if (numA > numB) {
+      updatedWinner = 1; // Team A gewinnt regulär
+    } else if (numB > numA) {
+      updatedWinner = 2; // Team B gewinnt regulär
     } else {
-      newB = val;
-      setGoalsB(val);
+      /* WICHTIG: Wenn es 1:1 steht, muss der User den Sieger neu wählen.
+         Wir setzen ihn hier auf null, damit das alte "Winner"-Flag 
+         aus der Datenbank verschwindet, falls vorher z.B. 2:1 getippt war.
+      */
+      updatedWinner = null; 
     }
+  }
 
-    checkAndSave(newA, newB, winner);
-  };
+  // 3. Den neuen Sieger-Status im State und in der DB speichern
+  setWinner(updatedWinner);
+  checkAndSave(newA, newB, updatedWinner);
+};
 
   // --- RENDER ---
   return (

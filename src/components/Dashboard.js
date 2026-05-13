@@ -8,6 +8,7 @@ import { DASHBOARD_STYLES, getTabButtonStyle, getPhaseButtonStyle } from "../Uti
 import TippsPage from "./TippsPage";
 import AdminResultsPage from "./AdminResultsPage"; 
 import AdminControlCenter from "./AdminControlCenter";
+import PointsAnalysisPage from "./PointsAnalysisPage"; // Import ist korrekt drin
 
 const Dashboard = ({ player, onLogout }) => {
   const [activePhase, setActivePhase] = useState("ranking");
@@ -23,15 +24,11 @@ const Dashboard = ({ player, onLogout }) => {
   }, []);
 
   useEffect(() => {
-  if (activePhase === "ranking") {
-    fetchDashboardData();
-  }
-}, [activePhase]);
+    if (activePhase === "ranking") {
+      fetchDashboardData();
+    }
+  }, [activePhase]);
 
-  /**
-   * Lädt alle notwendigen Daten aus der Supabase-Datenbank.
-   * Verwendet Promise.all für maximale Ladegeschwindigkeit.
-   */
   async function fetchDashboardData() {
     if (allPhases.length === 0) setLoading(true);
     try {
@@ -47,7 +44,6 @@ const Dashboard = ({ player, onLogout }) => {
       setSystemConfig(configRes.data);
       setNextMatches(matchesRes.data || []);
 
-      // RANKING-LOGIK: Berechnet die Gesamtpunktzahl pro Spieler
       const players = playersRes.data || [];
       const allPoints = pointsRes.data || [];
       const calculatedRanking = players.map(p => {
@@ -57,7 +53,6 @@ const Dashboard = ({ player, onLogout }) => {
         return { ...p, points: userTotal };
       });
 
-      // Sortierung: Spieler mit den meisten Punkten zuerst
       calculatedRanking.sort((a, b) => b.points - a.points);
       setRanking(calculatedRanking);
     } catch (error) {
@@ -69,13 +64,12 @@ const Dashboard = ({ player, onLogout }) => {
 
   if (loading) return <div style={{ padding: "20px" }}>Dashboard wird geladen...</div>;
 
-  // Fallback-Logik für den Anzeigenamen
   const displayName = player.display_name && player.display_name !== "EMPTY" ? player.display_name : player.name;
 
   return (
     <div style={DASHBOARD_STYLES.layout}>
       
-      {/* 🟣 SIDEBAR: Navigation und Nutzerprofil */}
+      {/* 🟣 SIDEBAR */}
       <aside style={DASHBOARD_STYLES.sidebar}>
         <div style={DASHBOARD_STYLES.profileBox}>
           <h2 style={{ fontSize: "1.2rem", margin: "0 0 5px 0" }}>{displayName}</h2>
@@ -90,7 +84,6 @@ const Dashboard = ({ player, onLogout }) => {
           <hr style={DASHBOARD_STYLES.divider} />
           <p style={DASHBOARD_STYLES.sectionHeader}>Tipp-Runden</p>
           
-          {/* Listet alle aktiven Phasen auf (z.B. Gruppe A, Gruppe B, KO-Phase) */}
           {allPhases.filter(p => p.is_active).map((p) => (
             <button 
               key={p.id} 
@@ -101,7 +94,6 @@ const Dashboard = ({ player, onLogout }) => {
             </button>
           ))}
 
-          {/* Spezial-Menü für Administratoren */}
           {player.is_admin && (
             <>
               <hr style={DASHBOARD_STYLES.divider} />
@@ -115,20 +107,24 @@ const Dashboard = ({ player, onLogout }) => {
             </>
           )}
 
+          {/* Statistiken Bereich */}
           <hr style={DASHBOARD_STYLES.divider} />
-          <button style={getTabButtonStyle(false)} onClick={() => alert("Statistiken kommen bald!")}>
-            📊 Statistiken
+          <p style={DASHBOARD_STYLES.sectionHeader}>Statistiken</p>
+          <button 
+            onClick={() => setActivePhase("points_analysis")} 
+            style={getTabButtonStyle(activePhase === "points_analysis")}
+          >
+            📊 Punkte-Analyse
           </button>
         </nav>
 
         <button onClick={onLogout} style={DASHBOARD_STYLES.logoutButton}>Abmelden</button>
       </aside>
 
-      {/* 🟢 HAUPTBEREICH: Content-Umschaltung basierend auf activePhase */}
+      {/* 🟢 HAUPTBEREICH */}
       <main style={DASHBOARD_STYLES.mainContent}>
         {activePhase === "ranking" ? (
           <>
-            {/* Vorschau der nächsten Spiele */}
             <section style={{ marginBottom: "30px" }}>
               <h3 style={DASHBOARD_STYLES.contentTitle}>Anstehende Partien</h3>
               <div style={DASHBOARD_STYLES.matchGrid}>
@@ -144,7 +140,6 @@ const Dashboard = ({ player, onLogout }) => {
               </div>
             </section>
 
-            {/* Die globale Rangliste */}
             <section style={DASHBOARD_STYLES.whiteCard}>
               <h3 style={DASHBOARD_STYLES.contentTitle}>Aktuelle Rangliste</h3>
               <table style={DASHBOARD_STYLES.table}>
@@ -170,8 +165,8 @@ const Dashboard = ({ player, onLogout }) => {
             </section>
           </>
         ) : (
-          /* Anzeige der Unterseiten (Tipps, Admin Control, Admin Results) */
           <div style={DASHBOARD_STYLES.flexibleCard}>
+            {/* HIER SIND DIE ÄNDERUNGEN: */}
             {activePhase === "admin_control" ? (
               <AdminControlCenter onUpdate={fetchDashboardData} />
             ) : activePhase === "admin_results" ? (
@@ -179,6 +174,8 @@ const Dashboard = ({ player, onLogout }) => {
                 phaseId={systemConfig?.current_phase_id} 
                 onUpdate={fetchDashboardData} 
               />
+            ) : activePhase === "points_analysis" ? (
+              <PointsAnalysisPage userId={player.id} />
             ) : (
               <TippsPage player={player} phaseId={activePhase} isAdmin={player.is_admin} />
             )}

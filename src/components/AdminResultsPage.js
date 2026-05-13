@@ -77,68 +77,70 @@ function AdminResultsPage({ phaseId, onUpdate }) {
   }
 
   async function saveRealResult(matchId, goalsA, goalsB, winner) {
-  if (goalsA === "" || goalsB === "") return;
+    if (goalsA === "" || goalsB === "") return;
 
-  const gA = Number(goalsA);
-  const gB = Number(goalsB);
-  
-  let finalWinner = 0;
-  if (gA > gB) finalWinner = 1;
-  else if (gB > gA) finalWinner = 2;
-  if (gA === gB && winner) finalWinner = Number(winner);
-
-  // 1. Das Spiel in der DB speichern
-  const { error: matchError } = await supabase
-    .from("match")
-    .update({ goals_a_real: gA, goals_b_real: gB, winner_real: finalWinner })
-    .eq("id", matchId);
+    const gA = Number(goalsA);
+    const gB = Number(goalsB);
     
-  if (matchError) return console.error("Match Update Error:", matchError.message);
+    let finalWinner = 0;
+    if (gA > gB) finalWinner = 1;
+    else if (gB > gA) finalWinner = 2;
+    if (gA === gB && winner) finalWinner = Number(winner);
 
-  // 2. Frische Daten holen für die weiteren Berechnungen
-  const { data: allMatches } = await supabase.from("match").select("*").order("match_order");
-  const currentMatch = allMatches.find(m => m.id === matchId);
+    // 1. Das Spiel in der DB speichern
+    const { error: matchError } = await supabase
+      .from("match")
+      .update({ goals_a_real: gA, goals_b_real: gB, winner_real: finalWinner })
+      .eq("id", matchId);
+      
+    if (matchError) return console.error("Match Update Error:", matchError.message);
 
-  // 3. Nur wenn es ein Gruppenspiel war, synchronisieren wir den Tabellenstand
-  if (currentMatch.stage === "group") {
+    // 2. Frische Daten holen
+    const { data: allMatches } = await supabase.from("match").select("*").order("match_order");
+    const currentMatch = allMatches.find(m => m.id === matchId);
+
+    // 3. SYNCHRONISATION (Wichtig: AWAIT nutzen!)
+    // Wir triggern die Synchronisation bei JEDEM Spiel, 
+    // damit real_ko_state immer aktuell ist, bevor wir Punkte berechnen.
     await syncRealTournamentState(allMatches, currentMatch.group_name);
+
+    // 4. Punkte-Berechnung für das Match-Ergebnis (Tipps)
+    const winnerPoints = await fetchWinnerPoints(currentMatch.team_a, currentMatch.team_b);
+    const { data: allTips } = await supabase.from("tip").select("*").eq("match_id", matchId);
+
+    await supabase.from("user_points_detail").delete().eq("match_id", matchId);
+
+    if (allTips && allTips.length > 0) {
+      const pointsToInsert = allTips.map(t => {
+        const result = calculateDetailedMatchPoints(
+          { goals_a: t.goals_a, goals_b: t.goals_b, winner: t.winner },
+          { goals_a: gA, goals_b: gB, winner: finalWinner },
+          winnerPoints
+        );
+
+        return {
+          player_id: t.player_id,
+          match_id: matchId,
+          match_order: currentMatch.match_order,
+          phase_id: t.phase_id, 
+          group_name: currentMatch.group_name || "KO",
+          points_total: result.total,
+          breakdown: result.breakdown,
+          category: 'MATCH',
+          is_prognosis: false
+        };
+      });
+      
+      await supabase.from("user_points_detail").insert(pointsToInsert);
+    }
+
+    // 5. PROGNOSE-PUNKTE (Wartet jetzt, bis syncRealTournamentState fertig ist)
+    await processPrognosisPoints(allMatches, currentMatch);
+
+    // 6. UI Update
+    if (onUpdate) onUpdate();
+    await fetchMatches(); 
   }
-
-  // 4. Punkte-Berechnung für das Spiel (Tipps der User)
-  const winnerPoints = await fetchWinnerPoints(currentMatch.team_a, currentMatch.team_b);
-  const { data: allTips } = await supabase.from("tip").select("*").eq("match_id", matchId);
-
-  await supabase.from("user_points_detail").delete().eq("match_id", matchId);
-
-  if (allTips && allTips.length > 0) {
-    const pointsToInsert = allTips.map(t => {
-      const result = calculateDetailedMatchPoints(
-        { goals_a: t.goals_a, goals_b: t.goals_b, winner: t.winner },
-        { goals_a: gA, goals_b: gB, winner: finalWinner },
-        winnerPoints
-      );
-
-      return {
-        player_id: t.player_id,
-        match_id: matchId,
-        phase_id: phaseId,
-        group_name: currentMatch.group_name || "KO",
-        points_total: result.total,
-        breakdown: result.breakdown,
-        category: 'MATCH',
-        is_prognosis: false
-      };
-    });
-    await supabase.from("user_points_detail").insert(pointsToInsert);
-  }
-
-  // 5. Prognose-Punkte (Einzug 16tel Finale etc.) triggern
-  await processPrognosisPoints(allMatches, currentMatch);
-
-  // 6. UI Update
-  if (onUpdate) onUpdate();
-  await fetchMatches(); // Das hier triggert das Re-Render der UI
-}
 
   if (loading) return <div style={{ padding: "20px" }}>Lade Admin-Daten...</div>;
 
@@ -161,23 +163,29 @@ function AdminResultsPage({ phaseId, onUpdate }) {
   const allGroupsArray = Object.keys(grouped).map(groupName => {
     const groupMatches = grouped[groupName];
     const tipsForCalc = {};
-    groupMatches.forEach(m => {
-        const r = realResultsAsTips[m.id];
-        tipsForCalc[m.id] = {
-            ...r,
-            goals_a: r.goals_a ?? 0, 
-            goals_b: r.goals_b ?? 0
-        };
+
+    // NUR Spiele berücksichtigen, die wirklich ein Ergebnis haben
+    const playedMatches = groupMatches.filter(m => 
+      m.goals_a_real !== null && m.goals_b_real !== null
+    );
+
+    playedMatches.forEach(m => {
+      tipsForCalc[m.id] = {
+        match_id: m.id,
+        goals_a: m.goals_a_real,
+        goals_b: m.goals_b_real,
+        winner: m.winner_real
+      };
     });
 
     return {
       id: groupName,
+      // calculateTable bekommt jetzt nur noch die tatsächlich gespielten Matches
       teams: calculateTable(groupMatches, tipsForCalc, manualRanks)
     };
   });
 
-  // --- NEU: LOGIK FÜR FREISCHALTUNG DER MANUELLEN RÄNGE ---
-  // 1. Alle Gruppenspiele insgesamt prüfen (für Best-Thirds)
+  // Checken, ob ALLE Gruppenspiele des gesamten Turniers fertig sind
   const allGroupGamesFinished = matches
     .filter(m => m.stage === "group")
     .every(m => m.goals_a_real !== null && m.goals_b_real !== null);
