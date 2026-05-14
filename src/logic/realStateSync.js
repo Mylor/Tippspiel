@@ -2,6 +2,7 @@ import { supabase } from "../supabaseClient";
 import { calculateFIFADataTable } from "./tournamentLogic";
 import { getBestThirds } from "../Utils/calcTable";
 import { resolveSlot } from "./koLogic"; 
+import { processPrognosisPoints } from "./pointsEngine"; // Importiert für den finalen Loop
 
 /**
  * Kernfunktion: Synchronisiert den realen Turnierverlauf in die DB
@@ -68,6 +69,10 @@ export async function syncRealTournamentState(matches, groupName = null) {
       
       if (groupFourth) finalDroppedOut.push(groupFourth);
       
+      const isBestThird = best8ThirdsReal.some(bt => bt.team === groupThird);
+      const groupBestThirdsForDB = isBestThird ? [groupThird] : [];
+
+      // WICHTIG: Wenn das Turnier vorbei ist, wissen wir sicher, welche 3. ausscheiden
       if (allGroupGamesFinished && groupThird && worst4ThirdsReal.includes(groupThird)) {
         finalDroppedOut.push(groupThird);
       }
@@ -78,7 +83,8 @@ export async function syncRealTournamentState(matches, groupName = null) {
         rank_2: table[1]?.team || null,
         rank_3: table[2]?.team || null,
         rank_4: table[3]?.team || null,
-        reached_ko: table.slice(0, 2).map(t => t.team), 
+        reached_ko: table.slice(0, 2).map(t => t.team),
+        reached_ko_best_thirds: groupBestThirdsForDB, 
         dropped_out: finalDroppedOut,
         is_finished: true
       };
@@ -91,6 +97,7 @@ export async function syncRealTournamentState(matches, groupName = null) {
         rank_3: null,
         rank_4: null,
         reached_ko: [],
+        reached_ko_best_thirds: [],
         dropped_out: [],
         is_finished: false
       });
@@ -153,11 +160,24 @@ export async function syncRealTournamentState(matches, groupName = null) {
 
   // KO-MATCH TEAMS IN DER 'MATCH' TABELLE AKTUALISIEREN
   await updateKOMatchLabels(matches, allTables, best8ThirdsReal, realTips);
+
+  // --- FINALER LOOP FÜR PUNKTE (SPIEL 72 ANKER) ---
+  if (allGroupGamesFinished) {
+    // Finde das Anker-Spiel (Spiel 72)
+    const anchorMatch = matches.find(m => m.match_order === 72);
+    
+    if (anchorMatch) {
+      // Loop über alle Gruppen, um die Punkte für Gruppendritte (KO-Einzug/Ausscheiden)
+      // nachträglich dem Spiel 72 zuzuordnen.
+      for (const groupName of allGroups) {
+        await processPrognosisPoints(matches, anchorMatch, groupName);
+      }
+    }
+  }
 }
 
 /**
  * Hilfsfunktion zum Updaten der Teamnamen in der match-Tabelle
- * NUTZT REVERSE-LOGIK: Falls Gruppe offen, wird Platzhalter wiederhergestellt.
  */
 async function updateKOMatchLabels(matches, allTables, best8ThirdsReal, realTips) {
   const groupResults = {};
@@ -165,8 +185,6 @@ async function updateKOMatchLabels(matches, allTables, best8ThirdsReal, realTips
   allTables.forEach(t => {
     const groupMatches = matches.filter(m => m.group_name === t.id);
     const isFinished = groupMatches.length > 0 && groupMatches.every(m => m.goals_a_real !== null);
-    
-    // Wenn Gruppe nicht fertig, explizit null setzen statt leeres Array
     groupResults[t.id] = isFinished ? t.teams.map(teamObj => teamObj.team) : null;
   });
 
@@ -184,11 +202,9 @@ async function updateKOMatchLabels(matches, allTables, best8ThirdsReal, realTips
   let localMatches = [...matches];
 
   for (const m of koMatches) {
-    // Wir nutzen zwingend den hinterlegten Platzhalter als Quelle für resolveSlot
     const slotA = m.placeholder_a; 
     const slotB = m.placeholder_b;
 
-    // Falls resolveSlot nichts findet (Gruppe offen), nutzen wir den Slot-Namen selbst
     let newTeamA = resolveSlot(slotA, { ...tournamentContext, matches: localMatches }) || slotA;
     let newTeamB = resolveSlot(slotB, { ...tournamentContext, matches: localMatches }) || slotB;
 
@@ -198,7 +214,6 @@ async function updateKOMatchLabels(matches, allTables, best8ThirdsReal, realTips
         .update({ 
           team_a: newTeamA, 
           team_b: newTeamB,
-          // Wenn zurück auf Platzhalter gesetzt wird, löschen wir auch Spielstands-Daten
           goals_a_real: isPlaceholder(newTeamA) ? null : m.goals_a_real,
           goals_b_real: isPlaceholder(newTeamB) ? null : m.goals_b_real,
           winner_real: (isPlaceholder(newTeamA) || isPlaceholder(newTeamB)) ? null : m.winner_real
@@ -212,14 +227,9 @@ async function updateKOMatchLabels(matches, allTables, best8ThirdsReal, realTips
   }
 }
 
-/**
- * Hilfsfunktion um zu prüfen, ob ein String ein Platzhalter ist
- */
 export function isPlaceholder(str) {
   if (!str) return false;
   if (str.includes("Placeholder")) return true;
-
   const placeholderRegex = /^([A-L][1-4]|[1-4][A-L]|Winner|Loser|1[A-L]|2[A-L]|3[A-L]|SSZF\d+)/i;
-  
   return placeholderRegex.test(str);
 }

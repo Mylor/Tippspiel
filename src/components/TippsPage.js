@@ -329,14 +329,12 @@ function TippsPage({ player, phaseId }) {
       const groupFourth = g.teams[3]?.team;
       const groupThird = g.teams[2]?.team;
 
-      // Initial ist der Gruppen-Vierte immer raus
+      // 1. Logik für ausgeschiedene Teams (wie gehabt)
       let finalDroppedOut = [groupFourth].filter(Boolean);
-
-      // Logik für den Gruppendritten:
-      // Wenn es einen Dritten gibt UND dieser NICHT in der Liste der 8 besten Dritten des Users ist
       if (groupThird && !bestThirdsTeams.includes(groupThird)) {
         finalDroppedOut.push(groupThird);
       }
+      const isThirdOfThisGroupInTop8 = groupThird && bestThirdsTeams.includes(groupThird);
 
       return {
         player_id: playerId, 
@@ -346,8 +344,9 @@ function TippsPage({ player, phaseId }) {
         rank_3: g.teams[2]?.team || null, 
         rank_4: g.teams[3]?.team || null,
         reached_ko: [g.teams[0]?.team, g.teams[1]?.team].filter(Boolean),
-        reached_ko_best_thirds: bestThirdsTeams, 
-        dropped_out: finalDroppedOut // Hier sind jetzt ggf. 2 Teams drin
+        // Hier wird jetzt nur noch das Team gespeichert, wenn es aus dieser Gruppe kommt
+        reached_ko_best_thirds: isThirdOfThisGroupInTop8 ? [groupThird] : [], 
+        dropped_out: finalDroppedOut
       };
     });
 

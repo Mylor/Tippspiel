@@ -85,53 +85,51 @@ export const getDynamicWinnerPoints = (rankA, rankB) => {
 /**
  * HAUPTFUNKTION: Vergleicht User-Prognosen mit dem realen Turnierstand
  */
-export async function processPrognosisPoints(allMatches, currentMatch) {
+export async function processPrognosisPoints(allMatches, currentMatch, forcedGroupName = null) {
   if (currentMatch.goals_a_real === null || currentMatch.goals_b_real === null) return;
 
-  // Wir extrahieren ID (mId) und ORDER (mOrder) aus dem aktuellen Spiel
-  const { id: mId, match_order: mOrder, group_name, stage, stage_order } = currentMatch;
+  const { id: mId, match_order: mOrder, stage, stage_order } = currentMatch;
+  const activeGroupName = forcedGroupName || currentMatch.group_name;
 
-  const { data: allGroups } = await supabase.from("real_group_state").select("is_finished");
-  const allGroupsFinished = allGroups?.every(g => g.is_finished) || false;
+  const { data: realGroup } = await supabase
+    .from("real_group_state")
+    .select("*")
+    .eq("group_name", activeGroupName || "")
+    .single();
 
-  const { data: realGroup } = await supabase.from("real_group_state").select("*").eq("group_name", group_name || "").single();
   const { data: realKO } = await supabase.from("real_ko_state").select("*").eq("id", 1).single();
 
-  if (!realKO) return;
+  if (!realKO || !realGroup) return;
 
   const pointsEntries = [];
-  const real32 = realKO.reached_16 || []; 
 
   // --- A. GRUPPEN-PUNKTE ---
-  if (stage === "group" && realGroup && realGroup.is_finished) {
-    const { data: userGroupProgs } = await supabase.from("user_prognosis_group").select("*").eq("group_name", group_name);
+  if (stage === "group" && realGroup.is_finished) {
+    const { data: userGroupProgs } = await supabase.from("user_prognosis_group").select("*").eq("group_name", activeGroupName);
 
     if (userGroupProgs) {
       userGroupProgs.forEach(prog => {
-        // 1. Tabellenplätze
+        // 1. Tabellenplätze (Striktes Matching)
         ['rank_1', 'rank_2', 'rank_3', 'rank_4'].forEach((rankKey) => {
           if (prog[rankKey] === realGroup[rankKey] && realGroup[rankKey] !== null) {
-            pointsEntries.push(createPointEntry(prog.player_id, 'GROUP_RANK', POINTS_CONFIG.PROG_TABLE_POS, prog[rankKey], 1, group_name, mId, mOrder));
+            pointsEntries.push(createPointEntry(prog.player_id, 'GROUP_RANK', POINTS_CONFIG.PROG_TABLE_POS, prog[rankKey], 1, activeGroupName, mId, mOrder));
           }
         });
 
-        // 2. KO-Einzug
-        const realTeamsInThisGroup = [realGroup.rank_1, realGroup.rank_2];
-        if (allGroupsFinished && realGroup.rank_3) realTeamsInThisGroup.push(realGroup.rank_3);
-
+        // 2. KO-Einzug: Nur Punkte, wenn das Team beim User als "Qualifiziert" steht UND real qualifiziert ist
         const userQualifiers = [...(prog.reached_ko || []), ...(prog.reached_ko_best_thirds || [])];
+        const realQualifiers = [...(realGroup.reached_ko || []), ...(realGroup.reached_ko_best_thirds || [])];
+
         userQualifiers.forEach(team => {
-          if (real32.includes(team) && realTeamsInThisGroup.includes(team)) {
-            pointsEntries.push(createPointEntry(prog.player_id, 'PROGNOSIS_PATH', POINTS_CONFIG.PROG_REACH_16, team, 1, group_name, mId, mOrder, { original: POINTS_CONFIG.PROG_REACH_16 }));
+          if (team && realQualifiers.includes(team)) {
+            pointsEntries.push(createPointEntry(prog.player_id, 'PROGNOSIS_PATH', POINTS_CONFIG.PROG_REACH_16, team, 1, activeGroupName, mId, mOrder, { original: POINTS_CONFIG.PROG_REACH_16 }));
           }
         });
 
-        // 3. Ausscheiden
+        // 3. Ausscheiden: Nur Punkte, wenn das Team beim User als "Raus" markiert ist UND real in dropped_out steht
         prog.dropped_out?.forEach(team => {
-          if (realGroup.dropped_out?.includes(team)) {
-             if (team === realGroup.rank_4 || (team === realGroup.rank_3 && allGroupsFinished)) {
-                pointsEntries.push(createPointEntry(prog.player_id, 'PROGNOSIS_PATH', POINTS_CONFIG.PROG_OUT_VORRUNDE, team, 1, group_name, mId, mOrder, { original: POINTS_CONFIG.PROG_OUT_VORRUNDE }));
-             }
+          if (team && realGroup.dropped_out?.includes(team)) {
+            pointsEntries.push(createPointEntry(prog.player_id, 'PROGNOSIS_PATH', POINTS_CONFIG.PROG_OUT_VORRUNDE, team, 1, activeGroupName, mId, mOrder, { original: POINTS_CONFIG.PROG_OUT_VORRUNDE }));
           }
         });
       });
@@ -154,7 +152,6 @@ export async function processPrognosisPoints(allMatches, currentMatch) {
         userKOProgs.forEach(prog => {
           const divisor = POINTS_CONFIG.DIVISORS[prog.phase_id] || 1;
           
-          // Erfolgreicher Einzug
           const progTeams = Array.isArray(prog[activeRound.progKey]) ? prog[activeRound.progKey] : [prog[activeRound.progKey]];
           progTeams.forEach(team => {
             if (team && (realKO[activeRound.realKey]?.includes?.(team) || realKO[activeRound.realKey] === team)) {
@@ -162,7 +159,6 @@ export async function processPrognosisPoints(allMatches, currentMatch) {
             }
           });
 
-          // Korrektes Ausscheiden
           if (activeRound.dropKey) {
             prog[activeRound.dropKey]?.forEach(team => {
               if (realKO[activeRound.dropKey]?.includes(team)) {
@@ -176,10 +172,14 @@ export async function processPrognosisPoints(allMatches, currentMatch) {
   }
 
   // --- C. SPEICHERN & CLEANUP ---
-  // Wir löschen alte Einträge für dieses spezifische Spiel-Ereignis
   if (stage === "group" && realGroup?.is_finished) {
-    await supabase.from("user_points_detail").delete().eq("group_name", group_name).eq("is_prognosis", true);
+    await supabase.from("user_points_detail")
+      .delete()
+      .eq("match_id", mId)
+      .eq("group_name", activeGroupName)
+      .eq("is_prognosis", true);
   }
+  
   if (stage === "ko") {
     await supabase.from("user_points_detail").delete().eq("match_id", mId).eq("is_prognosis", true);
   }
@@ -190,9 +190,6 @@ export async function processPrognosisPoints(allMatches, currentMatch) {
   }
 }
 
-/**
- * Hilfsfunktion zum Erstellen der Datenbank-Zeile
- */
 function createPointEntry(playerId, category, points, team, phase, groupName, matchId, matchOrder, extra = {}) {
   let typeLabel = category === "GROUP_RANK" ? "Tabellenplatz" : "Turnier-Pfad";
   let detailDesc = `Erfolgreiche Prognose in Phase ${phase}`;
@@ -200,21 +197,20 @@ function createPointEntry(playerId, category, points, team, phase, groupName, ma
   if (category === "GROUP_RANK") {
     detailDesc = `Richtige Gruppenplatzierung von ${team} in Phase ${phase}`;
   } else if (category === "PROGNOSIS_PATH") {
-  const originalPoints = extra.original || points;
-  const decimal = Math.round((originalPoints % 1) * 10) / 10; 
+    const originalPoints = extra.original || points;
+    const decimal = Math.round((originalPoints % 1) * 10) / 10; 
 
-  if (decimal === 0.1) {
-    // Anpassung der Labels an das 48-Team-Format (12 Gruppen)
-    if (originalPoints >= 20) detailDesc = `${team} erreicht das Finale`;
-    else if (originalPoints >= 16) detailDesc = `${team} erreicht das Sechzehntelfinale`; 
-    else if (originalPoints >= 8) detailDesc = `${team} erreicht das Achtelfinale`;
-    else if (originalPoints >= 4) detailDesc = `${team} erreicht das Viertelfinale`;
-    else if (originalPoints >= 2) detailDesc = `${team} erreicht das Halbfinale`; // Falls 2.1 Halbfinale ist
-    else if (originalPoints >= 1) detailDesc = `${team} ist Turniersieger`;
-  } else if (decimal === 0.2) {
-    detailDesc = `${team} scheidet korrekterweise aus`;
+    if (decimal === 0.1) {
+      if (originalPoints >= 20) detailDesc = `${team} erreicht das Finale`;
+      else if (originalPoints >= 16) detailDesc = `${team} erreicht das Sechzehntelfinale`; 
+      else if (originalPoints >= 8) detailDesc = `${team} erreicht das Achtelfinale`;
+      else if (originalPoints >= 4) detailDesc = `${team} erreicht das Viertelfinale`;
+      else if (originalPoints >= 2) detailDesc = `${team} erreicht das Halbfinale`;
+      else if (originalPoints >= 1) detailDesc = `${team} ist Turniersieger`;
+    } else if (decimal === 0.2) {
+      detailDesc = `${team} scheidet korrekterweise aus`;
+    }
   }
-}
 
   return {
     player_id: playerId, 
@@ -224,8 +220,8 @@ function createPointEntry(playerId, category, points, team, phase, groupName, ma
     phase_id: phase, 
     group_name: groupName, 
     is_prognosis: true,
-    match_id: matchId,       // Die echte ID für DB-Beziehungen
-    match_order: matchOrder, // Die fortlaufende Nummer für deine UI-Sortierung
+    match_id: matchId, 
+    match_order: matchOrder, 
     breakdown: { 
       info: `${typeLabel}: ${team}`, 
       descr: detailDesc, 
