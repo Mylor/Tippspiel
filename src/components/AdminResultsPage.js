@@ -65,8 +65,17 @@ function AdminResultsPage({ phaseId, onUpdate }) {
     // Wir triggern sync & prognosis neu, falls ein Rang den Aufstieg ändert
     const { data: allMatches } = await supabase.from("match").select("*").order("match_order");
     const lastGroupMatch = allMatches.filter(m => m.stage === "group").pop();
-    await syncRealTournamentState(allMatches, lastGroupMatch.group_name);
-    await processPrognosisPoints(allMatches, lastGroupMatch);
+    
+    await syncRealTournamentState(allMatches, lastGroupMatch ? lastGroupMatch.group_name : null);
+    
+    // Absicherung gegen 406 Error: Prognose-Punkte nur triggern, wenn ein gültiges Gruppen-Match existiert
+    if (lastGroupMatch && lastGroupMatch.group_name) {
+      try {
+        await processPrognosisPoints(allMatches, lastGroupMatch);
+      } catch (err) {
+        console.error("Fehler bei processPrognosisPoints (Manual Rank):", err);
+      }
+    }
     
     if (onUpdate) onUpdate();
     fetchMatches(); 
@@ -105,15 +114,18 @@ function AdminResultsPage({ phaseId, onUpdate }) {
 
   // --- REALES ERGEBNIS SPEICHERN ---
   async function saveRealResult(matchId, goalsA, goalsB, winner) {
-    if (goalsA === "" || goalsB === "") return;
+    // Erlaube leere Werte für den RESET-Fall
+    const isReset = goalsA === "" || goalsB === "" || goalsA === null || goalsB === null;
 
-    const gA = Number(goalsA);
-    const gB = Number(goalsB);
+    const gA = isReset ? null : Number(goalsA);
+    const gB = isReset ? null : Number(goalsB);
     
     let finalWinner = 0;
-    if (gA > gB) finalWinner = 1;
-    else if (gB > gA) finalWinner = 2;
-    if (gA === gB && winner) finalWinner = Number(winner);
+    if (!isReset) {
+      if (gA > gB) finalWinner = 1;
+      else if (gB > gA) finalWinner = 2;
+      if (gA === gB && winner) finalWinner = Number(winner);
+    }
 
     const currentMatchBefore = matches.find(m => m.id === matchId);
 
@@ -122,6 +134,7 @@ function AdminResultsPage({ phaseId, onUpdate }) {
       await resetManualRanksForGroup(currentMatchBefore.group_name);
     }
 
+    // 1. Aktuelles Spiel in DB updaten (schreibt jetzt sauber null rein bei Reset)
     const { error: matchError } = await supabase
       .from("match")
       .update({ goals_a_real: gA, goals_b_real: gB, winner_real: finalWinner })
@@ -129,40 +142,58 @@ function AdminResultsPage({ phaseId, onUpdate }) {
       
     if (matchError) return console.error("Match Update Error:", matchError.message);
 
+    // 2. Frische Daten holen, damit die Kette mit den aktuellen Werten arbeitet
     const { data: allMatches } = await supabase.from("match").select("*").order("match_order");
     const currentMatch = allMatches.find(m => m.id === matchId);
 
-    await syncRealTournamentState(allMatches, currentMatch.group_name);
+    // 3. KO-Labels und Kaskade updaten, damit Folgetabellen Namen statt Platzhalter bekommen
+    await syncRealTournamentState(allMatches, currentMatch ? currentMatch.group_name : null);
 
-    const winnerPoints = await fetchWinnerPoints(currentMatch.team_a, currentMatch.team_b);
-    const { data: allTips } = await supabase.from("tip").select("*").eq("match_id", matchId);
+    // Erneuter Fetch der Matches nach dem Sync, damit wir die neuen Teamnamen für die Punkteberechnung haben
+    const { data: refreshedMatches } = await supabase.from("match").select("*").order("match_order");
+    const dynamicCurrentMatch = refreshedMatches.find(m => m.id === matchId);
 
+    // 4. Reguläre Spiel-Tipps auswerten (Nur wenn kein Reset vorliegt)
     await supabase.from("user_points_detail").delete().eq("match_id", matchId).eq("is_prognosis", false);
 
-    if (allTips && allTips.length > 0) {
-      const pointsToInsert = allTips.map(t => {
-        const result = calculateDetailedMatchPoints(
-          { goals_a: t.goals_a, goals_b: t.goals_b, winner: t.winner },
-          { goals_a: gA, goals_b: gB, winner: finalWinner },
-          winnerPoints
-        );
+    if (!isReset) {
+      const winnerPoints = await fetchWinnerPoints(dynamicCurrentMatch.team_a, dynamicCurrentMatch.team_b);
+      const { data: allTips } = await supabase.from("tip").select("*").eq("match_id", matchId);
 
-        return {
-          player_id: t.player_id,
-          match_id: matchId,
-          match_order: currentMatch.match_order,
-          phase_id: t.phase_id, 
-          group_name: currentMatch.group_name || "KO",
-          points_total: result.total,
-          breakdown: result.breakdown,
-          category: 'MATCH',
-          is_prognosis: false
-        };
-      });
-      await supabase.from("user_points_detail").insert(pointsToInsert);
+      if (allTips && allTips.length > 0) {
+        const pointsToInsert = allTips.map(t => {
+          const result = calculateDetailedMatchPoints(
+            { goals_a: t.goals_a, goals_b: t.goals_b, winner: t.winner },
+            { goals_a: gA, goals_b: gB, winner: finalWinner },
+            winnerPoints
+          );
+
+          return {
+            player_id: t.player_id,
+            match_id: matchId,
+            match_order: dynamicCurrentMatch.match_order,
+            phase_id: phaseId, // Dynamische Phase ID statt Hardcoded 1
+            group_name: dynamicCurrentMatch.group_name || "KO",
+            points_total: result.total,
+            breakdown: result.breakdown,
+            category: 'MATCH',
+            is_prognosis: false
+          };
+        });
+        await supabase.from("user_points_detail").insert(pointsToInsert);
+      }
     }
 
-    await processPrognosisPoints(allMatches, currentMatch);
+    // 5. Prognose-Punkte NUR berechnen, wenn es ein Gruppenspiel ist, um den HTTP 406 Error bei KO-Spielen zu verhindern
+    if (dynamicCurrentMatch && dynamicCurrentMatch.stage === "group" && dynamicCurrentMatch.group_name) {
+      try {
+        await processPrognosisPoints(refreshedMatches, dynamicCurrentMatch);
+      } catch (err) {
+        console.error("Fehler bei processPrognosisPoints für Gruppenphase:", err);
+      }
+    } else {
+      console.log("[INFO] KO-Spiel verarbeitet. processPrognosisPoints für Gruppenübersicht übersprungen.");
+    }
 
     if (onUpdate) onUpdate();
     await fetchMatches(); 
@@ -213,7 +244,7 @@ function AdminResultsPage({ phaseId, onUpdate }) {
     groups: groupResults, 
     thirdPlaces: bestThirds.slice(0, 8), 
     tips: realResultsAsTips,
-    phaseId: 1 
+    phaseId: phaseId // Dynamische Phase ID statt Hardcoded 1
   };
 
   return (
@@ -262,7 +293,7 @@ function AdminResultsPage({ phaseId, onUpdate }) {
           tips={realResultsAsTips} 
           treeHeight={TREE_HEIGHT}
           roundNames={ROUND_NAMES}
-          phase={{ id: 1 }} 
+          phase={{ id: phaseId }} // Dynamische Phase ID statt Hardcoded 1
           getTopPosition={(r, m) => getTopPosition(r, m, TREE_HEIGHT, 300)}
           getTeamFromPrevious={(r, m, s) => 
             getTeamFromPrevious(r, m, s, koByRound, realResultsAsTips, tournamentContext)

@@ -20,10 +20,10 @@ export const POINTS_CONFIG = {
   PROG_REACH_2: 2.1,
   PROG_OUT_2: 2.2,
   PROG_REACH_FINAL: 20.1,
-  PROG_PLACE_4: 4.1,
-  PROG_PLACE_3: 3.1,
-  PROG_VIZE: 2.1,
-  PROG_CHAMPION: 1.1,
+  PROG_PLACE_4: 4.3,
+  PROG_PLACE_3: 3.3,
+  PROG_VIZE: 2.3,
+  PROG_CHAMPION: 1.3,
 
   // Vorrunde
   PROG_OUT_VORRUNDE: 2.2,
@@ -118,8 +118,12 @@ export async function processPrognosisPoints(allMatches, currentMatch, forcedGro
       if (userGroupProgs) {
         userGroupProgs.forEach(prog => {
           
-          // I. REGULÄRE AUSWERTUNG (Wird im Spiel 72 Loop ignoriert, da dort Match-IDs verschoben wären)
-          if (!isFinalThirdsLoop) {
+          // WICHTIGE ANPASSUNG: Wenn es die Gruppe von Spiel 72 ist, führen wir die reguläre Auswertung 
+          // ERST im isFinalThirdsLoop aus, damit der anschließende DB-Upsert sie nicht wieder überschreibt!
+          const shouldRunRegularCalculations = !isFinalThirdsLoop || (isFinalThirdsLoop && activeGroupName === currentMatch.group_name);
+
+          // I. REGULÄRE AUSWERTUNG
+          if (shouldRunRegularCalculations) {
             // 1. Tabellenplätze
             ['rank_1', 'rank_2', 'rank_3', 'rank_4'].forEach((rankKey) => {
               if (prog[rankKey] === realGroup[rankKey] && realGroup[rankKey] !== null) {
@@ -213,7 +217,6 @@ export async function processPrognosisPoints(allMatches, currentMatch, forcedGro
   }
 
   // --- C. SPEICHERN & CLEANUP ---
-  // Wenn wir im regulären Fluss sind, löschen wir alte Einträge dieser Match-ID
   if (!isFinalThirdsLoop) {
     await supabase.from("user_points_detail")
       .delete()
@@ -227,7 +230,6 @@ export async function processPrognosisPoints(allMatches, currentMatch, forcedGro
   }
   
   if (pointsEntries.length > 0) {
-    // UPSERT fängt nun über den neuen DB-Constraint jegliche team- und kategorieübergreifenden Dopplungen ab!
     const { error } = await supabase.from("user_points_detail").upsert(pointsEntries, {
       onConflict: "player_id,category,reference_team,is_prognosis"
     });

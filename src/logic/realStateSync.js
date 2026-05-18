@@ -104,7 +104,9 @@ export async function syncRealTournamentState(matches, groupName = null) {
     }
   }
 
+  // ==========================================
   // 5. KO-PHASEN UPDATE
+  // ==========================================
   const koMatches = matches.filter(m => m.stage === "ko");
   
   const getTeamsWhoReachedStage = (targetStageOrder) => {
@@ -118,8 +120,10 @@ export async function syncRealTournamentState(matches, groupName = null) {
   };
 
   const getLoserByStage = (stageOrder) => {
+    // Da Finale und Platz 3 beide stage_order 5 teilen, filtern wir Platz 3 hier explizit heraus,
+    // damit drop_out_2 rein die Halbfinal-Verlierer (bzw. die Teilnehmer des Spiels um Platz 3) abbildet.
     return koMatches
-      .filter(m => m.stage_order === stageOrder)
+      .filter(m => m.stage_order === stageOrder && m.match_order !== 103)
       .map(m => {
         const win = getWinnerForSync(m); 
         if (!win) return null;
@@ -137,10 +141,24 @@ export async function syncRealTournamentState(matches, groupName = null) {
     return null;
   }
 
-  const finalMatch = koMatches.find(m => m.stage_order === 5);
+  // Eindeutige Selektion der beiden Finalspiele über Match-Order
+  const finalMatch = koMatches.find(m => m.match_order === 104);
+  const thirdPlaceMatch = koMatches.find(m => m.match_order === 103);
+
+  // Gewinner und Verlierer des echten Finales (Match 104)
   let winnerFinal = null;
+  let loserFinal = null;
   if (finalMatch && finalMatch.winner_real) {
     winnerFinal = finalMatch.winner_real === 1 ? finalMatch.team_a : finalMatch.team_b;
+    loserFinal = finalMatch.winner_real === 1 ? finalMatch.team_b : finalMatch.team_a;
+  }
+
+  // Gewinner (3. Platz) und Verlierer (4. Platz) des kleinen Finales (Match 103)
+  let winnerSmallFinal = null;
+  let loserSmallFinal = null;
+  if (thirdPlaceMatch && thirdPlaceMatch.winner_real) {
+    winnerSmallFinal = thirdPlaceMatch.winner_real === 1 ? thirdPlaceMatch.team_a : thirdPlaceMatch.team_b;
+    loserSmallFinal = thirdPlaceMatch.winner_real === 1 ? thirdPlaceMatch.team_b : thirdPlaceMatch.team_a;
   }
 
   const realKOUpdate = {
@@ -148,12 +166,15 @@ export async function syncRealTournamentState(matches, groupName = null) {
     reached_16: finalReached16, 
     reached_8:  getTeamsWhoReachedStage(2),
     reached_4:  getTeamsWhoReachedStage(3),
-    reached_2:  getTeamsWhoReachedStage(4),
+    reached_2:  getTeamsWhoReachedStage(4), // Die 4 Teams aus den Halbfinals
     winner_final: winnerFinal,
+    loser_final: loserFinal,
+    winner_small_final: winnerSmallFinal,
+    loser_small_final: loserSmallFinal,
     drop_out_16: getLoserByStage(1),
     drop_out_8:  getLoserByStage(2),
     drop_out_4:  getLoserByStage(3),
-    drop_out_2:  getLoserByStage(4)
+    drop_out_2:  getLoserByStage(4) // Die beiden Verlierer des Halbfinals
   };
 
   await supabase.from("real_ko_state").upsert(realKOUpdate);
@@ -181,12 +202,18 @@ export async function syncRealTournamentState(matches, groupName = null) {
   }
 }
 
-/**
- * Hilfsfunktion zum Updaten der Teamnamen in der match-Tabelle
- */
 async function updateKOMatchLabels(matches, allTables, best8ThirdsReal, realTips) {
-  const groupResults = {};
+  console.log("=== START SYNC KO LABELS ===");
   
+  // --- DIAGNOSE-LOGS ---
+  console.log("--> [DIAGNOSE] Gesamtes übergebenes Array 'matches' Länge:", matches?.length);
+  const hintereSpiele = matches ? matches.filter(m => m.match_order >= 80) : [];
+  console.log("--> [DIAGNOSE] Spiele ab Match-Order 80 im Array:");
+  hintereSpiele.forEach(m => {
+    console.log(`    ID: ${m.id} | MatchOrder: ${m.match_order} | Stage: "${m.stage}" | StageOrder: ${m.stage_order} | Placeholder_A: "${m.placeholder_a}"`);
+  });
+
+  const groupResults = {};
   allTables.forEach(t => {
     const groupMatches = matches.filter(m => m.group_name === t.id);
     const isFinished = groupMatches.length > 0 && groupMatches.every(m => m.goals_a_real !== null);
@@ -202,39 +229,122 @@ async function updateKOMatchLabels(matches, allTables, best8ThirdsReal, realTips
 
   const koMatches = matches
     .filter(m => m.stage === "ko")
-    .sort((a, b) => a.stage_order - b.stage_order);
+    .sort((a, b) => a.stage_order - b.stage_order || a.match_order - b.match_order);
 
   let localMatches = [...matches];
 
   for (const m of koMatches) {
-    const slotA = m.placeholder_a; 
-    const slotB = m.placeholder_b;
+    // Diese Variablen halten am Ende der Strategien das berechnete Ergebnis
+    let newTeamA = m.team_a;
+    let newTeamB = m.team_b;
 
-    let newTeamA = resolveSlot(slotA, { ...tournamentContext, matches: localMatches }) || slotA;
-    let newTeamB = resolveSlot(slotB, { ...tournamentContext, matches: localMatches }) || slotB;
+    // --- STRATEGIE 1: Erste KO-Runde (Sechzehntelfinale / Stage Order 1) ---
+    if (m.stage_order === 1) {
+      if (m.placeholder_a) {
+        newTeamA = resolveSlot(m.placeholder_a, { ...tournamentContext, matches: localMatches }) || m.placeholder_a;
+      }
+      if (m.placeholder_b) {
+        newTeamB = resolveSlot(m.placeholder_b, { ...tournamentContext, matches: localMatches }) || m.placeholder_b;
+      }
+    } 
+    // --- STRATEGIE 2: Folgerunden (Achtelfinale, Viertelfinale, Halbfinale, Finale) ---
+    else {
+      // Funktion zur dynamischen Ermittlung des Siegerteams aus der Vorrunde
+      async function getTeamFromPreviousStage(placeholder, currentMatch) {
+        if (!placeholder || isPlaceholder(placeholder)) return null;
+
+        const match = placeholder.match(/^([A-Z]+)(\d+)$/i);
+        if (!match) return null;
+
+        const prefix = match[1].toUpperCase();
+        const orderNum = parseInt(match[2], 10);
+
+        let sourceMatchOrder = 0;
+
+        if (prefix === "SSZF") {
+          sourceMatchOrder = orderNum + 72; // SSZF1 bis SSZF16
+        } else if (prefix === "SAF") {
+          sourceMatchOrder = orderNum + 88; // SAF1 bis SAF8
+        } else if (prefix === "SVF") {
+          sourceMatchOrder = orderNum + 96; // SVF1 bis SVF4
+        } else if (prefix === "VHF" || prefix === "SHF") {
+          sourceMatchOrder = orderNum + 100; // VHF1/SHF1 bis VHF2/SHF2
+        }
+
+        if (sourceMatchOrder === 0) return null;
+
+        const sourceMatch = localMatches.find(x => x.match_order === sourceMatchOrder);
+        if (!sourceMatch) return null;
+
+        let winnerState = null;
+        if (sourceMatch.goals_a_real > sourceMatch.goals_b_real) winnerState = 1;
+        else if (sourceMatch.goals_a_real < sourceMatch.goals_b_real) winnerState = 2;
+        else if (sourceMatch.goals_a_real === sourceMatch.goals_b_real && sourceMatch.goals_a_real !== null) {
+          winnerState = sourceMatch.winner_real;
+        }
+
+        if (!winnerState) return null;
+
+        // VHF = Verlierer Halbfinale -> Hier geben wir den Verlierer zurück
+        if (prefix === "VHF") {
+          return winnerState === 1 ? sourceMatch.team_b : sourceMatch.team_a;
+        }
+
+        // Standard für SHF (Sieger Halbfinale) sowie alle anderen Vorrunden: Gewinner rückt vor
+        return winnerState === 1 ? sourceMatch.team_a : sourceMatch.team_b;
+      }
+
+      if (m.placeholder_a) {
+        const resolved = await getTeamFromPreviousStage(m.placeholder_a, m);
+        if (resolved) newTeamA = resolved;
+      }
+
+      if (m.placeholder_b) {
+        const resolved = await getTeamFromPreviousStage(m.placeholder_b, m);
+        if (resolved) newTeamB = resolved;
+      }
+    }
+
+    // --- GEMEINSAMER ABGLEICH & EINZIGES UPDATE FÜR ALLE PHASEN ---
+    const isReadyA = newTeamA && !isPlaceholder(newTeamA);
+    const isReadyB = newTeamB && !isPlaceholder(newTeamB);
+    const dynamicGoalsA = !isReadyA ? null : m.goals_a_real;
+    const dynamicGoalsB = !isReadyB ? null : m.goals_b_real;
+    const dynamicWinner = (!isReadyA || !isReadyB) ? null : m.winner_real;
 
     if (newTeamA !== m.team_a || newTeamB !== m.team_b) {
-      await supabase
+      console.log(`[MATCH-SYNC STAGE ${m.stage_order}] ID ${m.id} (Match ${m.match_order}) wird zu: ${newTeamA} vs ${newTeamB}`);
+      
+      const { error } = await supabase
         .from("match")
         .update({ 
           team_a: newTeamA, 
           team_b: newTeamB,
-          goals_a_real: isPlaceholder(newTeamA) ? null : m.goals_a_real,
-          goals_b_real: isPlaceholder(newTeamB) ? null : m.goals_b_real,
-          winner_real: (isPlaceholder(newTeamA) || isPlaceholder(newTeamB)) ? null : m.winner_real
+          goals_a_real: dynamicGoalsA,
+          goals_b_real: dynamicGoalsB,
+          winner_real: dynamicWinner
         })
         .eq("id", m.id);
 
+      if (error) {
+        console.error(`DB Update Error bei Match ID ${m.id}:`, error.message);
+      }
+
+      // Lokales Array updaten, damit die darauffolgende Runde im Loop die frisch eingetragenen Teams sieht!
       localMatches = localMatches.map(lm => 
-        lm.id === m.id ? { ...lm, team_a: newTeamA, team_b: newTeamB } : lm
+        lm.id === m.id 
+          ? { ...lm, team_a: newTeamA, team_b: newTeamB, goals_a_real: dynamicGoalsA, goals_b_real: dynamicGoalsB, winner_real: dynamicWinner } 
+          : lm
       );
     }
   }
+  console.log("=== END SYNC KO LABELS ===");
 }
 
 export function isPlaceholder(str) {
   if (!str) return false;
   if (str.includes("Placeholder")) return true;
-  const placeholderRegex = /^([A-L][1-4]|[1-4][A-L]|Winner|Loser|1[A-L]|2[A-L]|3[A-L]|SSZF\d+)/i;
+  // Regex erweitert um SSZF? (optionales F) für maximale Flexibilität bei Platzhaltern
+  const placeholderRegex = /^([A-L][1-4]|[1-4][A-L]|Winner|Loser|1[A-L]|2[A-L]|3[A-L]|SSZF?\d+)/i;
   return placeholderRegex.test(str);
 }
