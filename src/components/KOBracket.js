@@ -81,21 +81,8 @@ const KOBracket = ({
                   const nextTop = getTopPosition(actualRoundIdx + 1, Math.floor(matchIndex / 2));
 
                   // LOGIK: Woher kommen die Teams für dieses Spiel?
-                  let teamA, teamB;
-                  if (phase.id > 1 && isActiveTippingRound) {
-                    // Aus dem Speicher der aktuellen Phase
-                    teamA = m.team_a || "?";
-                    teamB = m.team_b || "?";
-                  } else if (actualRoundIdx === 0) {
-                    // Erste Runde: Auflösung der Gruppen-Platzierungen (z.B. A1 gegen 1A)
-                    const matchDef = KO_STRUCTURE.round16[matchIndex];
-                    teamA = resolveSlot(matchDef[0], context);
-                    teamB = resolveSlot(matchDef[1], context);
-                  } else {
-                    // Folgerunden: Gewinner aus den vorherigen Spielen ziehen
-                    teamA = getTeamFromPrevious(actualRoundIdx, matchIndex, "A");
-                    teamB = getTeamFromPrevious(actualRoundIdx, matchIndex, "B");
-                  }
+                  let teamA = getTeamFromPrevious(actualRoundIdx, matchIndex, "A") || "?";
+                  let teamB = getTeamFromPrevious(actualRoundIdx, matchIndex, "B") || "?";
 
                   // LOGIK: Wer hat das Spiel gewonnen? (Berücksichtigt Tore und manuelle Siegerwahl)
                   const winningSide = (() => {

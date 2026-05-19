@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { supabase } from "../supabaseClient";
-import { calculateFIFADataTable } from "../logic/tournamentLogic"; // Nutze FIFA Logik wie in TippsPage
+import { calculateFIFADataTable } from "../logic/tournamentLogic"; 
 import { getTopPosition, resolveSlot, getTeamFromPrevious } from "../logic/koLogic";
 import { getBestThirds } from "../Utils/calcTable";
 import { calculateDetailedMatchPoints, getDynamicWinnerPoints } from "../logic/pointsEngine";
@@ -52,147 +52,90 @@ function AdminResultsPage({ phaseId, onUpdate }) {
     setManualRanks(rankMap);
   }
 
-  // --- MANUELLER RANG SPEICHERN ---
-  async function saveAdminManualRank(teamName, rank) {
-    const val = rank === "" ? null : Number(rank);
-    const { error } = await supabase
-      .from("real_manual_rank")
-      .upsert([{ team_name: teamName, manual_rank: val }], { onConflict: 'team_name' });
-
-    if (error) return console.error("Admin Rank Error:", error.message);
+  // --- HARD RESET FUNKTION ---
+  async function forceHardResetKO() {
+    if (!window.confirm("Wirklich ALLE KO-Ergebnisse löschen und den gesamten KO-Baum auf Platzhalter zurücksetzen?")) return;
+    setLoading(true);
     
-    setManualRanks(prev => ({ ...prev, [teamName]: val }));
-    // Wir triggern sync & prognosis neu, falls ein Rang den Aufstieg ändert
-    const { data: allMatches } = await supabase.from("match").select("*").order("match_order");
-    const lastGroupMatch = allMatches.filter(m => m.stage === "group").pop();
+    // Alle KO-Spiele holen
+    const { data: koMatches } = await supabase.from("match").select("*").eq("stage", "ko");
     
-    await syncRealTournamentState(allMatches, lastGroupMatch ? lastGroupMatch.group_name : null);
-    
-    // Absicherung gegen 406 Error: Prognose-Punkte nur triggern, wenn ein gültiges Gruppen-Match existiert
-    if (lastGroupMatch && lastGroupMatch.group_name) {
-      try {
-        await processPrognosisPoints(allMatches, lastGroupMatch);
-      } catch (err) {
-        console.error("Fehler bei processPrognosisPoints (Manual Rank):", err);
-      }
+    // Jedes KO-Spiel auf Urzustand setzen
+    for (const m of koMatches) {
+      await supabase.from("match").update({
+        goals_a_real: null, 
+        goals_b_real: null, 
+        winner_real: null,
+        team_a: m.placeholder_a, 
+        team_b: m.placeholder_b
+      }).eq("id", m.id);
     }
     
+    await fetchData();
+    setLoading(false);
+  }
+
+  async function saveAdminManualRank(teamName, rank) {
+    const val = rank === "" ? null : Number(rank);
+    await supabase.from("real_manual_rank").upsert([{ team_name: teamName, manual_rank: val }], { onConflict: 'team_name' });
+    setManualRanks(prev => ({ ...prev, [teamName]: val }));
+    const { data: allMatches } = await supabase.from("match").select("*").order("match_order");
+    const lastGroupMatch = allMatches.filter(m => m.stage === "group").pop();
+    await syncRealTournamentState(allMatches, lastGroupMatch?.group_name);
     if (onUpdate) onUpdate();
     fetchMatches(); 
   }
 
-  // --- RESET DER RÄNGE BEI SPIELÄNDERUNG ---
   async function resetManualRanksForGroup(groupName) {
     const groupMatches = matches.filter(m => m.group_name === groupName);
     const teamsInGroup = [...new Set(groupMatches.flatMap(m => [m.team_a, m.team_b]))];
-    
-    const { error } = await supabase
-      .from("real_manual_rank")
-      .delete()
-      .in("team_name", teamsInGroup);
-
-    if (!error) {
-      setManualRanks(prev => {
-        const newRanks = { ...prev };
-        teamsInGroup.forEach(t => delete newRanks[t]);
-        return newRanks;
-      });
-    }
+    await supabase.from("real_manual_rank").delete().in("team_name", teamsInGroup);
+    setManualRanks(prev => {
+      const newRanks = { ...prev };
+      teamsInGroup.forEach(t => delete newRanks[t]);
+      return newRanks;
+    });
   }
 
   async function fetchWinnerPoints(teamA, teamB) {
-    const { data: teams } = await supabase
-      .from('teams')
-      .select('name, fifa_rank')
-      .in('name', [teamA, teamB]);
-
+    const { data: teams } = await supabase.from('teams').select('name, fifa_rank').in('name', [teamA, teamB]);
     if (!teams || teams.length < 2) return 4;
-    const rankA = teams.find(t => t.name === teamA)?.fifa_rank || 50;
-    const rankB = teams.find(t => t.name === teamB)?.fifa_rank || 50;
-    return getDynamicWinnerPoints(rankA, rankB);
+    return getDynamicWinnerPoints(teams.find(t => t.name === teamA)?.fifa_rank || 50, teams.find(t => t.name === teamB)?.fifa_rank || 50);
   }
 
-  // --- REALES ERGEBNIS SPEICHERN ---
   async function saveRealResult(matchId, goalsA, goalsB, winner) {
-    // Erlaube leere Werte für den RESET-Fall
     const isReset = goalsA === "" || goalsB === "" || goalsA === null || goalsB === null;
-
     const gA = isReset ? null : Number(goalsA);
     const gB = isReset ? null : Number(goalsB);
-    
-    let finalWinner = 0;
-    if (!isReset) {
-      if (gA > gB) finalWinner = 1;
-      else if (gB > gA) finalWinner = 2;
-      if (gA === gB && winner) finalWinner = Number(winner);
-    }
+    let finalWinner = !isReset ? ((gA > gB ? 1 : (gB > gA ? 2 : Number(winner || 0)))) : 0;
 
     const currentMatchBefore = matches.find(m => m.id === matchId);
+    if (currentMatchBefore?.stage === "group") await resetManualRanksForGroup(currentMatchBefore.group_name);
 
-    // Sicherheits-Reset: Wenn Gruppenspiel, lösche manuelle Ränge dieser Gruppe
-    if (currentMatchBefore?.stage === "group") {
-      await resetManualRanksForGroup(currentMatchBefore.group_name);
-    }
-
-    // 1. Aktuelles Spiel in DB updaten (schreibt jetzt sauber null rein bei Reset)
-    const { error: matchError } = await supabase
-      .from("match")
-      .update({ goals_a_real: gA, goals_b_real: gB, winner_real: finalWinner })
-      .eq("id", matchId);
-      
-    if (matchError) return console.error("Match Update Error:", matchError.message);
-
-    // 2. Frische Daten holen, damit die Kette mit den aktuellen Werten arbeitet
+    await supabase.from("match").update({ goals_a_real: gA, goals_b_real: gB, winner_real: finalWinner }).eq("id", matchId);
+    
     const { data: allMatches } = await supabase.from("match").select("*").order("match_order");
-    const currentMatch = allMatches.find(m => m.id === matchId);
+    await syncRealTournamentState(allMatches, allMatches.find(m => m.id === matchId)?.group_name);
 
-    // 3. KO-Labels und Kaskade updaten, damit Folgetabellen Namen statt Platzhalter bekommen
-    await syncRealTournamentState(allMatches, currentMatch ? currentMatch.group_name : null);
-
-    // Erneuter Fetch der Matches nach dem Sync, damit wir die neuen Teamnamen für die Punkteberechnung haben
     const { data: refreshedMatches } = await supabase.from("match").select("*").order("match_order");
     const dynamicCurrentMatch = refreshedMatches.find(m => m.id === matchId);
 
-    // 4. Reguläre Spiel-Tipps auswerten (Nur wenn kein Reset vorliegt)
     await supabase.from("user_points_detail").delete().eq("match_id", matchId).eq("is_prognosis", false);
 
     if (!isReset) {
       const winnerPoints = await fetchWinnerPoints(dynamicCurrentMatch.team_a, dynamicCurrentMatch.team_b);
       const { data: allTips } = await supabase.from("tip").select("*").eq("match_id", matchId);
-
-      if (allTips && allTips.length > 0) {
+      if (allTips?.length > 0) {
         const pointsToInsert = allTips.map(t => {
-          const result = calculateDetailedMatchPoints(
-            { goals_a: t.goals_a, goals_b: t.goals_b, winner: t.winner },
-            { goals_a: gA, goals_b: gB, winner: finalWinner },
-            winnerPoints
-          );
-
-          return {
-            player_id: t.player_id,
-            match_id: matchId,
-            match_order: dynamicCurrentMatch.match_order,
-            phase_id: phaseId, // Dynamische Phase ID statt Hardcoded 1
-            group_name: dynamicCurrentMatch.group_name || "KO",
-            points_total: result.total,
-            breakdown: result.breakdown,
-            category: 'MATCH',
-            is_prognosis: false
-          };
+          const result = calculateDetailedMatchPoints({ goals_a: t.goals_a, goals_b: t.goals_b, winner: t.winner }, { goals_a: gA, goals_b: gB, winner: finalWinner }, winnerPoints);
+          return { player_id: t.player_id, match_id: matchId, match_order: dynamicCurrentMatch.match_order, phase_id: phaseId, group_name: dynamicCurrentMatch.group_name || "KO", points_total: result.total, breakdown: result.breakdown, category: 'MATCH', is_prognosis: false };
         });
         await supabase.from("user_points_detail").insert(pointsToInsert);
       }
     }
 
-    // 5. Prognose-Punkte NUR berechnen, wenn es ein Gruppenspiel ist, um den HTTP 406 Error bei KO-Spielen zu verhindern
-    if (dynamicCurrentMatch && dynamicCurrentMatch.stage === "group" && dynamicCurrentMatch.group_name) {
-      try {
-        await processPrognosisPoints(refreshedMatches, dynamicCurrentMatch);
-      } catch (err) {
-        console.error("Fehler bei processPrognosisPoints für Gruppenphase:", err);
-      }
-    } else {
-      console.log("[INFO] KO-Spiel verarbeitet. processPrognosisPoints für Gruppenübersicht übersprungen.");
+    if (dynamicCurrentMatch) {
+      await processPrognosisPoints(refreshedMatches, dynamicCurrentMatch, dynamicCurrentMatch.stage === "ko" ? null : dynamicCurrentMatch.group_name, false);
     }
 
     if (onUpdate) onUpdate();
@@ -202,11 +145,7 @@ function AdminResultsPage({ phaseId, onUpdate }) {
   if (loading) return <div style={{ padding: "20px" }}>Lade Admin-Daten...</div>;
 
   const realResultsAsTips = {};
-  matches.forEach(m => {
-    realResultsAsTips[m.id] = {
-      match_id: m.id, goals_a: m.goals_a_real, goals_b: m.goals_b_real, winner: m.winner_real
-    };
-  });
+  matches.forEach(m => { realResultsAsTips[m.id] = { match_id: m.id, goals_a: m.goals_a_real, goals_b: m.goals_b_real, winner: m.winner_real }; });
 
   const grouped = {};
   matches.filter(m => m.stage === "group").forEach(m => {
@@ -214,96 +153,46 @@ function AdminResultsPage({ phaseId, onUpdate }) {
     grouped[m.group_name].push(m);
   });
 
-  const allGroupsArray = Object.keys(grouped).map(groupName => {
-    const groupMatches = grouped[groupName];
-    return {
-      id: groupName,
-      teams: calculateFIFADataTable(groupMatches, realResultsAsTips, manualRanks)
-    };
-  });
-
-  const allGroupGamesFinished = matches
-    .filter(m => m.stage === "group")
-    .every(m => m.goals_a_real !== null && m.goals_b_real !== null);
-
+  const allGroupsArray = Object.keys(grouped).map(name => ({ id: name, teams: calculateFIFADataTable(grouped[name], realResultsAsTips, manualRanks) }));
+  const allGroupGamesFinished = matches.filter(m => m.stage === "group").every(m => m.goals_a_real !== null);
   const bestThirds = getBestThirds(allGroupsArray, manualRanks);
-  const groupResults = {};
-  allGroupsArray.forEach(g => { groupResults[g.id] = g.teams.map(t => t.team); });
-
-  const koMatches = matches
-    .filter(m => m.stage === "ko")
-    .sort((a,b) => a.stage_order - b.stage_order || a.ko_order - b.ko_order);
+  const groupResults = {}; allGroupsArray.forEach(g => { groupResults[g.id] = g.teams.map(t => t.team); });
 
   const koByRound = {};
-  koMatches.forEach(m => {
+  matches.filter(m => m.stage === "ko").sort((a,b) => a.stage_order - b.stage_order || a.ko_order - b.ko_order).forEach(m => {
     if (!koByRound[m.stage_order]) koByRound[m.stage_order] = [];
     koByRound[m.stage_order].push(m);
   });
 
-  const tournamentContext = { 
-    groups: groupResults, 
-    thirdPlaces: bestThirds.slice(0, 8), 
-    tips: realResultsAsTips,
-    phaseId: phaseId // Dynamische Phase ID statt Hardcoded 1
-  };
+  const tournamentContext = { groups: groupResults, thirdPlaces: bestThirds.slice(0, 8), tips: realResultsAsTips, phaseId: phaseId };
 
   return (
     <div style={{ display: "flex", gap: "50px", padding: "20px", width: "max-content" }}>
       <div ref={groupRef} style={{ flex: "0 0 auto" }}>
         <h2 style={{ color: "#dc2626" }}>Admin: Gruppen</h2>
-        {Object.keys(grouped).sort().map(name => {
-          const groupMatches = grouped[name];
-          const groupData = allGroupsArray.find(g => g.id === name);
-          const tableData = groupData ? groupData.teams : [];
-
-          return (
-            <GroupTable 
-              key={name} 
-              groupName={name} 
-              matches={groupMatches} 
-              tips={realResultsAsTips} 
-              tableData={tableData} 
-              onSaveTip={saveRealResult} 
-              isSubmitted={false}
-              isAdmin={true} 
-              manualRanks={manualRanks}
-                
-              // Vereinfacht: Da die GroupTable die Box erst anzeigt, wenn alle Spiele 
-              // eingetragen sind, können wir den Rang hier ohne Extra-Prüfung direkt wegspeichern.
-              onSaveManualRank={(teamName, rank) => {
-                saveAdminManualRank(teamName, rank);
-              }}
-             />
-          );
-        })}
-        <BestThirdsTable 
-          teams={bestThirds} 
-          manualRanks={manualRanks}
-          isSubmitted={false}
-          isAdmin={true}
-          onSaveManualRank={saveAdminManualRank}
-          canEditRanks={allGroupGamesFinished}
-        />
+        {Object.keys(grouped).sort().map(name => (
+          <GroupTable key={name} groupName={name} matches={grouped[name]} tips={realResultsAsTips} tableData={allGroupsArray.find(g => g.id === name)?.teams || []} onSaveTip={saveRealResult} isAdmin={true} manualRanks={manualRanks} onSaveManualRank={saveAdminManualRank} />
+        ))}
+        <BestThirdsTable teams={bestThirds} manualRanks={manualRanks} isAdmin={true} onSaveManualRank={saveAdminManualRank} canEditRanks={allGroupGamesFinished} />
       </div>
 
-      <div style={{ flex: "1", minWidth: "fit-content" }}>
-        <h2 style={{ color: "#dc2626", marginLeft: "20px" }}>Admin: KO-Baum</h2>
+      <div style={{ flex: "1", minWidth: "600px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+            <h2 style={{ color: "#dc2626", margin: 0 }}>Admin: KO-Baum</h2>
+            <button 
+              onClick={forceHardResetKO} 
+              style={{ backgroundColor: "#ef4444", color: "white", padding: "10px 20px", borderRadius: "5px", border: "none", cursor: "pointer", fontWeight: "bold" }}
+            >
+              KO-Baum Reset
+            </button>
+        </div>
         <KOBracket 
-          koByRound={koByRound} 
-          tips={realResultsAsTips} 
-          treeHeight={TREE_HEIGHT}
-          roundNames={ROUND_NAMES}
-          phase={{ id: phaseId }} // Dynamische Phase ID statt Hardcoded 1
+          koByRound={koByRound} tips={realResultsAsTips} treeHeight={TREE_HEIGHT} roundNames={ROUND_NAMES}
+          phase={{ id: phaseId }} 
           getTopPosition={(r, m) => getTopPosition(r, m, TREE_HEIGHT, 300)}
-          getTeamFromPrevious={(r, m, s) => 
-            getTeamFromPrevious(r, m, s, koByRound, realResultsAsTips, tournamentContext)
-          }
+          getTeamFromPrevious={(r, m, s) => getTeamFromPrevious(r, m, s, koByRound, realResultsAsTips, tournamentContext)}
           resolveSlot={(slot) => resolveSlot(slot, tournamentContext)}
-          baseSpacing={300}
-          saveTip={saveRealResult}
-          deleteKORound={() => {}} 
-          isAdmin={true}
-          KO_STRUCTURE={KO_STRUCTURE}
+          saveTip={saveRealResult} deleteKORound={() => {}} isAdmin={true} KO_STRUCTURE={KO_STRUCTURE}
         />
       </div>
     </div>

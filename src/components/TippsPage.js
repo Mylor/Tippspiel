@@ -144,29 +144,42 @@ function TippsPage({ player, phaseId }) {
     const currentMatch = matches.find(m => m.id === matchId);
     const isKOMatch = currentMatch?.stage === "ko";
 
+    // In deiner saveTip Funktion, direkt vor dem supabase-Aufruf:
+    const isInputEmpty = (goalsA === "" || goalsA === null) && 
+                        (goalsB === "" || goalsB === null) && 
+                        (!winner);
+
+    if (isInputEmpty) {
+      // Wenn der User den Tipp gelöscht hat, muss er physisch aus der DB verschwinden
+      await supabase.from("tip").delete()
+        .eq("player_id", player.id)
+        .eq("match_id", matchId)
+        .eq("phase_id", phaseId);
+        
+      setTips(prev => {
+        const next = { ...prev };
+        delete next[matchId];
+        return next;
+      });
+      return; // HIER STOPPEN! Nichts weiter ausführen.
+    }
+
     if (isSpecial) {
       await supabase.from("tip_final_matrix").upsert([{
         player_id: player.id, matrix_key: matchId, goals_a: gA, goals_b: gB,
         winner: calculatedWinner, phase_id: phaseId,
       }], { onConflict: 'player_id, matrix_key' });
     } else {
-      // --- DIE NEUE WEGWEISER-LOGIK ---
-      // Wenn wir in Phase 1 sind UND es ein KO-Spiel ist -> NICHT in 'tip' speichern!
-      if (Number(phaseId) === 1 && isKOMatch) {
-        console.log(`[SAVE-SHIELD] Phase 1 KO-Match ${matchId} wird nicht in 'tip' gespeichert, da es eine reine Prognose ist.`);
-        // Wir überspringen den DB-Upsert für 'tip' komplett!
-      } else {
-        // In allen anderen Fällen (Gruppenspiele in Phase 1, oder KO-Spiele in Phase 2+) ganz normal speichern
-        await supabase.from("tip").upsert([{
-          player_id: player.id, match_id: matchId, phase_id: phaseId,
-          goals_a: gA, goals_b: gB, winner: calculatedWinner,
-        }], { onConflict: 'player_id, match_id, phase_id' });
-      }
+      // KEIN SAVE-SHIELD MEHR! Jedes Match (egal ob Gruppe oder KO, egal welche Phase) 
+      // wird für den User sicher in die Tabelle 'tip' geschrieben!
+      await supabase.from("tip").upsert([{
+        player_id: player.id, match_id: matchId, phase_id: phaseId,
+        goals_a: gA, goals_b: gB, winner: calculatedWinner,
+      }], { onConflict: 'player_id, match_id, phase_id' });
     }
-    
-    // WICHTIG: Den lokalen State setzen wir IMMER, damit die UI flüssig reagiert 
-    // und der useEffect-Debouncer die 'user_prognosis_ko' Tabelle füttern kann!
-    setTips(prev => ({ ...prev, [matchId]: { goals_a: gA, goals_b: gB, winner: calculatedWinner } }));
+
+      // Lokalen State aktualisieren
+      setTips(prev => ({ ...prev, [matchId]: { goals_a: gA, goals_b: gB, winner: calculatedWinner } }));
   }
 
   // Speichert einen manuellen Rang (Losentscheid) für die Gruppentabelle
@@ -372,27 +385,37 @@ function TippsPage({ player, phaseId }) {
   async function updateKOPrognosisDB(playerId, phId, koData, currentTips, context) {
     const currentId = Number(phId);
 
-    const getPrognosisTeam = (roundIdx, matchIdx, side) => {
+    // Hilfsfunktion: Ermittelt das Team für die Prognose-DB
+    // Nutzt in Phase 1 den User-Kontext (Gruppenstand), sonst die KO-Rekursion
+    const getTeamForPrognosis = (roundIdx, matchIdx, side) => {
+      if (currentId === 1 && roundIdx === 0) {
+        // Phase 1: Auflösung der Gruppen-Slots via resolveSlot
+        const slot = KO_STRUCTURE.round16[matchIdx][side === "A" ? 0 : 1];
+        return resolveSlot(slot, context) || null;
+      }
+      // Folgephasen: Dynamische Berechnung aus den Tipps
       const name = getTeamFromPrevious(roundIdx, matchIdx, side, koData, currentTips, context);
       return (name && name !== "?") ? name : null;
     };
 
     const getProgWinner = (roundIdx, matchIdx) => {
       const stageOrder = roundIdx + 1;
-      const m = koData[stageOrder]?.[matchIdx];
+      const matchesInRound = koData[stageOrder] || [];
+      const m = matchesInRound[matchIdx];
       if (!m) return null;
       const winSide = getWinner(m.id, currentTips);
       if (!winSide) return null;
-      return getPrognosisTeam(roundIdx, matchIdx, winSide === 1 ? "A" : "B");
+      return getTeamForPrognosis(roundIdx, matchIdx, winSide === 1 ? "A" : "B");
     };
 
     const getProgLoser = (roundIdx, matchIdx) => {
       const stageOrder = roundIdx + 1;
-      const m = koData[stageOrder]?.[matchIdx];
+      const matchesInRound = koData[stageOrder] || [];
+      const m = matchesInRound[matchIdx];
       if (!m) return null;
       const winSide = getWinner(m.id, currentTips);
       if (!winSide) return null;
-      return getPrognosisTeam(roundIdx, matchIdx, winSide === 1 ? "B" : "A");
+      return getTeamForPrognosis(roundIdx, matchIdx, winSide === 1 ? "B" : "A");
     };
 
     const getSortedMatches = (stage) => (koData[stage] || []).sort((a, b) => a.ko_order - b.ko_order);
@@ -404,11 +427,12 @@ function TippsPage({ player, phaseId }) {
     const r3placeMatch = koData[5]?.[1];
 
     const finalRecord = {
-      player_id: playerId, phase_id: currentId,
-      reached_16: (currentId >= 2) ? [] : r16.flatMap((_, i) => [getPrognosisTeam(0, i, "A"), getPrognosisTeam(0, i, "B")]).filter(Boolean),
-      reached_8:  (currentId >= 3) ? [] : r8.flatMap((_, i) => [getPrognosisTeam(1, i, "A"), getPrognosisTeam(1, i, "B")]).filter(Boolean),
-      reached_4:  (currentId >= 4) ? [] : r4.flatMap((_, i) => [getPrognosisTeam(2, i, "A"), getPrognosisTeam(2, i, "B")]).filter(Boolean),
-      reached_2:  r2.flatMap((_, i) => [getPrognosisTeam(3, i, "A"), getPrognosisTeam(3, i, "B")]).filter(Boolean),
+      player_id: playerId, 
+      phase_id: currentId,
+      reached_16: (currentId >= 2) ? [] : r16.flatMap((_, i) => [getTeamForPrognosis(0, i, "A"), getTeamForPrognosis(0, i, "B")]).filter(Boolean),
+      reached_8:  (currentId >= 3) ? [] : r8.flatMap((_, i) => [getTeamForPrognosis(1, i, "A"), getTeamForPrognosis(1, i, "B")]).filter(Boolean),
+      reached_4:  (currentId >= 4) ? [] : r4.flatMap((_, i) => [getTeamForPrognosis(2, i, "A"), getTeamForPrognosis(2, i, "B")]).filter(Boolean),
+      reached_2:  r2.flatMap((_, i) => [getTeamForPrognosis(3, i, "A"), getTeamForPrognosis(3, i, "B")]).filter(Boolean),
       drop_out_16: (currentId >= 3) ? [] : r16.map((_, i) => getProgLoser(0, i)).filter(Boolean),
       drop_out_8:  (currentId >= 4) ? [] : r8.map((_, i) => getProgLoser(1, i)).filter(Boolean),
       drop_out_4:  r4.map((_, i) => getProgLoser(2, i)).filter(Boolean),
@@ -418,8 +442,6 @@ function TippsPage({ player, phaseId }) {
       winner_small_final: r3placeMatch ? getProgWinner(4, 1) : null,
       loser_small_final:  r3placeMatch ? getProgLoser(4, 1) : null
     };
-
-    console.log("[KO-TRACE] --- FINALES PROGNOSE-OBJEKT FÜR DB ---", finalRecord);
 
     const { error } = await supabase.from("user_prognosis_ko").upsert([finalRecord], { onConflict: 'player_id, phase_id' });
     if (error) console.error(`DB-Fehler Phase ${currentId}:`, error.message);
@@ -452,7 +474,35 @@ function TippsPage({ player, phaseId }) {
           <div style={{ flexGrow: 1 }}>
             <h3 style={{ marginLeft: "20px" }}>KO-Phase</h3>
             <div style={{ display: "flex", flexDirection: "row", alignItems: "flex-start" }}>
-              <KOBracket koByRound={koByRound} tips={tips} treeHeight={treeHeight} roundNames={ROUND_NAMES} phase={{ ...phase, is_submitted: isReadOnly }} getTopPosition={(rIdx, mIdx) => getTopPosition(rIdx, mIdx, treeHeight, currentSpacing) - topOffset} getTeamFromPrevious={(rIdx, mIdx, side) => getTeamFromPrevious(rIdx, mIdx, side, koByRound, tips, tournamentContext)} resolveSlot={(slot) => resolveSlot(slot, tournamentContext)} saveTip={isReadOnly ? null : saveTip} deleteKORound={isReadOnly ? null : deleteKORound} KO_STRUCTURE={KO_STRUCTURE} />
+              <KOBracket 
+                koByRound={koByRound} 
+                tips={tips} 
+                treeHeight={treeHeight} 
+                roundNames={ROUND_NAMES} 
+                phase={{ ...phase, is_submitted: isReadOnly }} 
+                getTopPosition={(rIdx, mIdx) => getTopPosition(rIdx, mIdx, treeHeight, currentSpacing) - topOffset} 
+                
+                // HIER IST DIE TRENNUNG DER LOGIK:
+                getTeamFromPrevious={(rIdx, mIdx, side) => {
+                  // 1. PHASE 1: Sonderfall Runde 0 (Auflösung aus Gruppen)
+                  if (Number(phaseId) === 1 && rIdx === 0) {
+                    const matchPair = KO_STRUCTURE.round16[mIdx];
+                    const slot = side === "A" ? matchPair[0] : matchPair[1];
+                    return resolveSlot(slot, tournamentContext) || null;
+                  }
+
+                  // 2. ALLE ANDEREN FÄLLE (Phase 1, Runden > 0 sowie Phase 2+)
+                  // Wir delegieren alles an deine Core-Funktion 'getTeamFromPrevious' aus der koLogic.js.
+                  // WICHTIG: Die Core-Funktion muss jetzt wissen, wie sie mit der übergebenen Logik umgeht.
+                  return getTeamFromPrevious(rIdx, mIdx, side, koByRound, tips, tournamentContext);
+                }}
+                
+                resolveSlot={(slot) => resolveSlot(slot, tournamentContext)} 
+                saveTip={isReadOnly ? null : saveTip} 
+                deleteKORound={isReadOnly ? null : deleteKORound} 
+                KO_STRUCTURE={KO_STRUCTURE} 
+                isAdmin={false} // Wichtig: Damit das Admin-Fallback in der Komponente nicht aktiv wird
+              />
               {Number(phaseId) === 5 && renderPhase5Matrix()}
             </div>
           </div>

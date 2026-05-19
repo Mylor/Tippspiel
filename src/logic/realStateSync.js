@@ -31,7 +31,7 @@ export async function syncRealTournamentState(matches, groupName = null) {
     return groupMatches.length > 0 && groupMatches.every(m => m.goals_a_real !== null);
   });
 
-  // 3. BEST THIRDS & 32 QUALIFIER POOL BERECHNUNG
+  // BEST THIRDS & POOL VORBEREITUNG
   const allThirdsSorted = getBestThirds(allTables);
   
   const best8ThirdsReal = allThirdsSorted.slice(0, 8).map(t => ({
@@ -41,13 +41,19 @@ export async function syncRealTournamentState(matches, groupName = null) {
 
   const worst4ThirdsReal = allThirdsSorted.slice(8, 12).map(t => t.team);
 
-  // KORREKTUR FÜR finalReached16
+  // ==========================================================================
+  // KORREKTUR: KO-MATCH LABELS ZUERST AUFLÖSEN & ALS BASIS NUTZEN
+  // ==========================================================================
+  // Wir übergeben das gesamte Array. Die Funktion filtert nun selbst intelligent!
+  const updatedLocalMatches = await updateKOMatchLabels(matches, allTables, best8ThirdsReal, realTips);
+
+  // KORREKTUR FÜR finalReached16 (Verwendet jetzt die bereinigten Matches)
   const top24Real = allTables
     .filter(t => finishedGroups.includes(t.id)) 
     .flatMap(t => t.teams.slice(0, 2).map(teamObj => teamObj.team));
 
   // Gruppendritte erst hinzufügen, wenn ALLE Gruppenspiele des Turniers fertig sind
-  const allGroupGamesFinished = matches
+  const allGroupGamesFinished = updatedLocalMatches
     .filter(m => m.stage === "group")
     .every(m => m.goals_a_real !== null);
 
@@ -72,7 +78,6 @@ export async function syncRealTournamentState(matches, groupName = null) {
       const isBestThird = best8ThirdsReal.some(bt => bt.team === groupThird);
       const groupBestThirdsForDB = isBestThird ? [groupThird] : [];
 
-      // Wenn das gesamte Gruppen-Turnier vorbei ist, wissen wir sicher, welche 3. ausscheiden
       if (allGroupGamesFinished && groupThird && worst4ThirdsReal.includes(groupThird)) {
         finalDroppedOut.push(groupThird);
       }
@@ -105,9 +110,9 @@ export async function syncRealTournamentState(matches, groupName = null) {
   }
 
   // ==========================================
-  // 5. KO-PHASEN UPDATE
+  // 5. KO-PHASEN UPDATE (Nutzt updatedLocalMatches)
   // ==========================================
-  const koMatches = matches.filter(m => m.stage === "ko");
+  const koMatches = updatedLocalMatches.filter(m => m.stage === "ko");
   
   const getTeamsWhoReachedStage = (targetStageOrder) => {
     if (targetStageOrder === 1) return finalReached16; 
@@ -120,8 +125,6 @@ export async function syncRealTournamentState(matches, groupName = null) {
   };
 
   const getLoserByStage = (stageOrder) => {
-    // Da Finale und Platz 3 beide stage_order 5 teilen, filtern wir Platz 3 hier explizit heraus,
-    // damit drop_out_2 rein die Halbfinal-Verlierer (bzw. die Teilnehmer des Spiels um Platz 3) abbildet.
     return koMatches
       .filter(m => m.stage_order === stageOrder && m.match_order !== 103)
       .map(m => {
@@ -141,11 +144,9 @@ export async function syncRealTournamentState(matches, groupName = null) {
     return null;
   }
 
-  // Eindeutige Selektion der beiden Finalspiele über Match-Order
   const finalMatch = koMatches.find(m => m.match_order === 104);
   const thirdPlaceMatch = koMatches.find(m => m.match_order === 103);
 
-  // Gewinner und Verlierer des echten Finales (Match 104)
   let winnerFinal = null;
   let loserFinal = null;
   if (finalMatch && finalMatch.winner_real) {
@@ -153,7 +154,6 @@ export async function syncRealTournamentState(matches, groupName = null) {
     loserFinal = finalMatch.winner_real === 1 ? finalMatch.team_b : finalMatch.team_a;
   }
 
-  // Gewinner (3. Platz) und Verlierer (4. Platz) des kleinen Finales (Match 103)
   let winnerSmallFinal = null;
   let loserSmallFinal = null;
   if (thirdPlaceMatch && thirdPlaceMatch.winner_real) {
@@ -166,7 +166,7 @@ export async function syncRealTournamentState(matches, groupName = null) {
     reached_16: finalReached16, 
     reached_8:  getTeamsWhoReachedStage(2),
     reached_4:  getTeamsWhoReachedStage(3),
-    reached_2:  getTeamsWhoReachedStage(4), // Die 4 Teams aus den Halbfinals
+    reached_2:  getTeamsWhoReachedStage(4), 
     winner_final: winnerFinal,
     loser_final: loserFinal,
     winner_small_final: winnerSmallFinal,
@@ -174,28 +174,25 @@ export async function syncRealTournamentState(matches, groupName = null) {
     drop_out_16: getLoserByStage(1),
     drop_out_8:  getLoserByStage(2),
     drop_out_4:  getLoserByStage(3),
-    drop_out_2:  getLoserByStage(4) // Die beiden Verlierer des Halbfinals
+    drop_out_2:  getLoserByStage(4) 
   };
 
   await supabase.from("real_ko_state").upsert(realKOUpdate);
-
-  // KO-MATCH TEAMS IN DER 'MATCH' TABELLE AKTUALISIEREN
-  await updateKOMatchLabels(matches, allTables, best8ThirdsReal, realTips);
 
   // --- FINALER LOOP FÜR PUNKTE (SPIEL 72 ANKER) ---
   if (allGroupGamesFinished) {
     const anchorMatch = matches.find(m => m.match_order === 72);
     
     if (anchorMatch) {
-      // Lösche vor dem Gruppendritten-Loop gezielt nur die Einträge, die direkt an Spiel 72 hängen
-      await supabase.from("user_points_detail")
-        .delete()
-        .eq("match_id", anchorMatch.id)
-        .eq("is_prognosis", true);
+      // SCHRITT 1: Berechne erst ganz normal das Gruppenende für die Gruppe von Spiel 72 (die 7 Instanzen)
+      // Das passiert automatisch im regulären Schleifendurchlauf der Matches davor, 
+      // aber wir stellen sicher, dass der isFinalThirdsLoop hier danach läuft.
 
-      // Loop über alle Gruppen, um ausschließlich die Gruppendritten auszuwerten
+      // SCHRITT 2: Jetzt startet exklusiv der Sonder-Loop für alle Gruppendritten des Turniers
       for (const groupName of allGroups) {
-        // Parameter 'isFinalThirdsLoop' wird auf true gesetzt
+        // 'isFinalThirdsLoop' wird explizit auf TRUE gesetzt
+        // Der Code läuft jetzt durch alle Gruppen, nimmt aber als ID immer Spiel 72,
+        // damit die Dritten-Punkte fest an Spiel 72 gekoppelt sind.
         await processPrognosisPoints(matches, anchorMatch, groupName, true);
       }
     }
@@ -203,15 +200,24 @@ export async function syncRealTournamentState(matches, groupName = null) {
 }
 
 async function updateKOMatchLabels(matches, allTables, best8ThirdsReal, realTips) {
+
+  console.log("[DEBUG-CHECK] Anzahl Matches mit winner_real:", 
+  matches.filter(m => m.stage === "ko" && m.winner_real !== null).length);
+
+  // 1. DIAGNOSE & VORAUSSETZUNGEN (Dein originaler Code beibehalten)
+  const allGroupMatches = matches.filter(m => m.stage === "group");
+  const finishedGroupMatchesCount = allGroupMatches.filter(m => m.goals_a_real !== null).length;
+  const allGroupGamesFinished = allGroupMatches.every(m => m.goals_a_real !== null);
+
+  console.log(`[SYNC-DEBUG] Starte Kaskade. Fertige Gruppen-Spiele: ${finishedGroupMatchesCount}`);
+
+  if (finishedGroupMatchesCount > 0 && !allGroupGamesFinished) {
+    const hasActiveKOChanges = matches.some(m => m.stage === "ko" && m.goals_a_real !== null);
+    if (!hasActiveKOChanges) return matches;
+  }
+  if (finishedGroupMatchesCount === 0) return matches;
+
   console.log("=== START SYNC KO LABELS ===");
-  
-  // --- DIAGNOSE-LOGS ---
-  console.log("--> [DIAGNOSE] Gesamtes übergebenes Array 'matches' Länge:", matches?.length);
-  const hintereSpiele = matches ? matches.filter(m => m.match_order >= 80) : [];
-  console.log("--> [DIAGNOSE] Spiele ab Match-Order 80 im Array:");
-  hintereSpiele.forEach(m => {
-    console.log(`    ID: ${m.id} | MatchOrder: ${m.match_order} | Stage: "${m.stage}" | StageOrder: ${m.stage_order} | Placeholder_A: "${m.placeholder_a}"`);
-  });
 
   const groupResults = {};
   allTables.forEach(t => {
@@ -220,131 +226,84 @@ async function updateKOMatchLabels(matches, allTables, best8ThirdsReal, realTips
     groupResults[t.id] = isFinished ? t.teams.map(teamObj => teamObj.team) : null;
   });
 
-  const tournamentContext = {
-    groups: groupResults,
-    thirdPlaces: best8ThirdsReal,
-    tips: realTips,
-    phaseId: 1
-  };
-
+  const tournamentContext = { groups: groupResults, thirdPlaces: best8ThirdsReal, tips: realTips, phaseId: 1 };
   const koMatches = matches
     .filter(m => m.stage === "ko")
     .sort((a, b) => a.stage_order - b.stage_order || a.match_order - b.match_order);
 
   let localMatches = [...matches];
 
+  // 2. KASKADIERUNGS-LOOP
   for (const m of koMatches) {
-    // Diese Variablen halten am Ende der Strategien das berechnete Ergebnis
     let newTeamA = m.team_a;
     let newTeamB = m.team_b;
 
-    // --- STRATEGIE 1: Erste KO-Runde (Sechzehntelfinale / Stage Order 1) ---
+    console.log(`[LOOP-DEBUG] Prüfe Match ${m.match_order} (ID: ${m.id}). Aktuelle Teams: ${m.team_a} vs ${m.team_b}`);
+
     if (m.stage_order === 1) {
-      if (m.placeholder_a) {
-        newTeamA = resolveSlot(m.placeholder_a, { ...tournamentContext, matches: localMatches }) || m.placeholder_a;
-      }
-      if (m.placeholder_b) {
-        newTeamB = resolveSlot(m.placeholder_b, { ...tournamentContext, matches: localMatches }) || m.placeholder_b;
-      }
-    } 
-    // --- STRATEGIE 2: Folgerunden (Achtelfinale, Viertelfinale, Halbfinale, Finale) ---
-    else {
-      // Funktion zur dynamischen Ermittlung des Siegerteams aus der Vorrunde
-      async function getTeamFromPreviousStage(placeholder, currentMatch) {
-        if (!placeholder || isPlaceholder(placeholder)) return null;
+      // 16tel-Finale auflösen (benötigt Gruppen-Daten)
+      if (isPlaceholder(m.team_a)) newTeamA = resolveSlot(m.placeholder_a, { ...tournamentContext, matches: localMatches }) || m.placeholder_a;
+      if (isPlaceholder(m.team_b)) newTeamB = resolveSlot(m.placeholder_b, { ...tournamentContext, matches: localMatches }) || m.placeholder_b;
+    } else {
+      // Folgerunden: Gewinner aus lokalem Array ziehen
+      async function getTeamFromPreviousStage(placeholder) {
+        if (!placeholder) return null;
+        const matchInfo = placeholder.match(/^([A-Z]+)(\d+)$/i);
+        if (!matchInfo) return null;
+        
+        // Offset-Berechnung: Ist diese korrekt?
+        const offset = (matchInfo[1] === "SSZF" ? 72 : matchInfo[1] === "SAF" ? 88 : matchInfo[1] === "SVF" ? 96 : 100);
+        const targetOrder = parseInt(matchInfo[2], 10) + offset;
+        
+        // HIER LOGGEN WIR DIE SUCHE
+        console.log(`[DEBUG] Suche Quell-Match für ${placeholder} -> Match-Order gesucht: ${targetOrder}`);
+        
+        console.log(`[DEBUG-KASKADE] Suche Quelle für ${placeholder}.`);
 
-        const match = placeholder.match(/^([A-Z]+)(\d+)$/i);
-        if (!match) return null;
+        const sourceMatch = localMatches.find(x => x.match_order === targetOrder);
+        console.log(`[DEBUG-KONTROLLE] Suche Order ${targetOrder}. Gefundenes Match:`, sourceMatch ? `ID: ${sourceMatch.id}, Winner: ${sourceMatch.winner_real}` : "NIX");
 
-        const prefix = match[1].toUpperCase();
-        const orderNum = parseInt(match[2], 10);
-
-        let sourceMatchOrder = 0;
-
-        if (prefix === "SSZF") {
-          sourceMatchOrder = orderNum + 72; // SSZF1 bis SSZF16
-        } else if (prefix === "SAF") {
-          sourceMatchOrder = orderNum + 88; // SAF1 bis SAF8
-        } else if (prefix === "SVF") {
-          sourceMatchOrder = orderNum + 96; // SVF1 bis SVF4
-        } else if (prefix === "VHF" || prefix === "SHF") {
-          sourceMatchOrder = orderNum + 100; // VHF1/SHF1 bis VHF2/SHF2
+        console.log(`[DEBUG-VIERTEL] Suche ${placeholder}. Ziel-Order: ${targetOrder}. Gefunden?`, 
+        sourceMatch ? `JA! Winner: ${sourceMatch.winner_real}` : "NEIN!");
+        
+        if (sourceMatch) {
+          console.log(`[DEBUG-MATCH-STATUS] ID ${sourceMatch.id} | Tore: ${sourceMatch.goals_a_real}:${sourceMatch.goals_b_real} | Winner_Real: ${sourceMatch.winner_real}`);
+        } else {
+          console.log(`[DEBUG-MATCH-STATUS] Match mit Order ${targetOrder} NICHT gefunden.`);
         }
 
-        if (sourceMatchOrder === 0) return null;
-
-        const sourceMatch = localMatches.find(x => x.match_order === sourceMatchOrder);
-        if (!sourceMatch) return null;
-
-        let winnerState = null;
-        if (sourceMatch.goals_a_real > sourceMatch.goals_b_real) winnerState = 1;
-        else if (sourceMatch.goals_a_real < sourceMatch.goals_b_real) winnerState = 2;
-        else if (sourceMatch.goals_a_real === sourceMatch.goals_b_real && sourceMatch.goals_a_real !== null) {
-          winnerState = sourceMatch.winner_real;
-        }
-
-        if (!winnerState) return null;
-
-        // VHF = Verlierer Halbfinale -> Hier geben wir den Verlierer zurück
-        if (prefix === "VHF") {
-          return winnerState === 1 ? sourceMatch.team_b : sourceMatch.team_a;
-        }
-
-        // Standard für SHF (Sieger Halbfinale) sowie alle anderen Vorrunden: Gewinner rückt vor
-        return winnerState === 1 ? sourceMatch.team_a : sourceMatch.team_b;
+        if (!sourceMatch?.winner_real) return null;
+        return (sourceMatch.winner_real === 1) ? sourceMatch.team_a : sourceMatch.team_b;
       }
-
-      if (m.placeholder_a) {
-        const resolved = await getTeamFromPreviousStage(m.placeholder_a, m);
-        if (resolved) newTeamA = resolved;
-      }
-
-      if (m.placeholder_b) {
-        const resolved = await getTeamFromPreviousStage(m.placeholder_b, m);
-        if (resolved) newTeamB = resolved;
-      }
+      if (isPlaceholder(m.team_a)) newTeamA = await getTeamFromPreviousStage(m.placeholder_a) || m.placeholder_a;
+      if (isPlaceholder(m.team_b)) newTeamB = await getTeamFromPreviousStage(m.placeholder_b) || m.placeholder_b;
     }
 
-    // --- GEMEINSAMER ABGLEICH & EINZIGES UPDATE FÜR ALLE PHASEN ---
-    const isReadyA = newTeamA && !isPlaceholder(newTeamA);
-    const isReadyB = newTeamB && !isPlaceholder(newTeamB);
-    const dynamicGoalsA = !isReadyA ? null : m.goals_a_real;
-    const dynamicGoalsB = !isReadyB ? null : m.goals_b_real;
-    const dynamicWinner = (!isReadyA || !isReadyB) ? null : m.winner_real;
-
-    if (newTeamA !== m.team_a || newTeamB !== m.team_b) {
-      console.log(`[MATCH-SYNC STAGE ${m.stage_order}] ID ${m.id} (Match ${m.match_order}) wird zu: ${newTeamA} vs ${newTeamB}`);
+    // 3. DATENSCHONENDES UPDATE
+    const isCurrentlyPlaceholder = isPlaceholder(m.team_a) || isPlaceholder(m.team_b);
+    
+    if (newTeamA !== m.team_a || newTeamB !== m.team_b || isCurrentlyPlaceholder) {
+      console.log(`[PUSH] Update ID ${m.id}: Ersetze Platzhalter/Aktualisiere -> ${newTeamA} vs ${newTeamB}`);
       
       const { error } = await supabase
         .from("match")
-        .update({ 
-          team_a: newTeamA, 
-          team_b: newTeamB,
-          goals_a_real: dynamicGoalsA,
-          goals_b_real: dynamicGoalsB,
-          winner_real: dynamicWinner
-        })
+        .update({ team_a: newTeamA, team_b: newTeamB })
         .eq("id", m.id);
 
-      if (error) {
-        console.error(`DB Update Error bei Match ID ${m.id}:`, error.message);
-      }
+      if (error) console.error(`[DB-ERROR]`, error);
+      else console.log(`[DB-SUCCESS] Update für ID ${m.id} bestätigt.`);
 
-      // Lokales Array updaten, damit die darauffolgende Runde im Loop die frisch eingetragenen Teams sieht!
-      localMatches = localMatches.map(lm => 
-        lm.id === m.id 
-          ? { ...lm, team_a: newTeamA, team_b: newTeamB, goals_a_real: dynamicGoalsA, goals_b_real: dynamicGoalsB, winner_real: dynamicWinner } 
-          : lm
-      );
+      // Lokal updaten für die nächste Stufe der Kaskade
+      localMatches = localMatches.map(lm => lm.id === m.id ? { ...lm, team_a: newTeamA, team_b: newTeamB } : lm);
     }
   }
   console.log("=== END SYNC KO LABELS ===");
+  return localMatches; 
 }
 
 export function isPlaceholder(str) {
   if (!str) return false;
   if (str.includes("Placeholder")) return true;
-  // Regex erweitert um SSZF? (optionales F) für maximale Flexibilität bei Platzhaltern
   const placeholderRegex = /^([A-L][1-4]|[1-4][A-L]|Winner|Loser|1[A-L]|2[A-L]|3[A-L]|SSZF?\d+)/i;
   return placeholderRegex.test(str);
 }

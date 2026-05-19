@@ -81,56 +81,44 @@ export function getWinner(matchId, tips) {
  */
 export function getTeamFromPrevious(roundIndex, matchIndex, side, koByRound, tips, context) {
   const currentPhaseId = context?.phaseId || 1;
-  
-  // LOG: Start der Analyse für eine Ebene im Baum
-  console.log(`[KO-TRACE] Starte getTeamFromPrevious | Phase: ${currentPhaseId} | Runde-Index: ${roundIndex} | Match-Index: ${matchIndex} | Seite: ${side}`);
+  const rounds = Object.keys(koByRound).map(Number).sort((a, b) => a - b);
 
-  // BASIS-FALL: Erste KO-Runde (Sechzehntelfinale)
-  if (roundIndex === 0) {
-    const rounds = Object.keys(koByRound).map(Number).sort((a, b) => a - b);
-    const currentRoundKey = rounds[0];
-    const currentMatch = koByRound[currentRoundKey]?.[matchIndex];
-    
+  // --- 1. PHASE 1: Sonderbehandlung für Sechzehntelfinale (Runde 0) ---
+  // Hier erzwingen wir die Auflösung der Platzhalter (z.B. A1, B2) via resolveSlot
+  if (currentPhaseId === 1 && roundIndex === 0) {
+    const currentMatch = koByRound[rounds[0]]?.[matchIndex];
     if (currentMatch) {
-      // UMGEKEHRTE PRIORITÄT: Erst das echte Team prüfen, falls leer -> Platzhalter
       const slot = side === "A" 
         ? (currentMatch.team_a || currentMatch.placeholder_a) 
         : (currentMatch.team_b || currentMatch.placeholder_b);
-        
-      console.log(`[KO-TRACE] -> Basis-Fall R0 (Match-ID: ${currentMatch.id}). Gewähltes Team/Slot: "${slot}"`);
-      
-      // Falls es doch ein Platzhalter war, jagen wir ihn vorsichtshalber durch den Resolver
-      return resolveSlot(slot, context);
+      return resolveSlot(slot, context) || "?";
     }
     return "?";
   }
 
-  // BASIS-FALL: REALDATEN für höhere Phasen (Phase 2+)
-  const startRoundOfPhase = currentPhaseId === 1 ? 0 : currentPhaseId - 2;
+  // --- 2. PHASE 2+: Basis-Fall für den Start der jeweiligen Phase ---
+  // Greift direkt auf die in der Datenbank hinterlegten Teams der aktuellen Phase zu
+  const startRoundOfPhase = currentPhaseId - 2; 
   if (currentPhaseId > 1 && roundIndex === startRoundOfPhase) {
-    const rounds = Object.keys(koByRound).map(Number).sort((a, b) => a - b);
     const currentRoundKey = rounds[roundIndex];
     const currentMatch = koByRound[currentRoundKey]?.[matchIndex];
     
     if (currentMatch) {
       const team = side === "A" ? currentMatch.team_a : currentMatch.team_b;
-      console.log(`[KO-TRACE] -> Phase > 1 Sonderfall getroffen (Runde == ${startRoundOfPhase}). Match-ID: ${currentMatch.id}. Aus DB gelesenes Team: "${team}"`);
       return team || "?";
     }
   }
 
-  // REKURSIONS-SCHRITT
-  const rounds = Object.keys(koByRound).map(Number).sort((a, b) => a - b);
+  // --- 3. REKURSIONS-SCHRITT: Für alle weiteren Runden ---
+  // Berechnet die Gewinner aus den vorherigen Spielen
   const prevRoundIndexInMap = rounds.indexOf(rounds.find(r => r >= 0)) + roundIndex - 1;
   const prevRoundKey = rounds[prevRoundIndexInMap];
   const prevRound = koByRound[prevRoundKey];
 
-  if (!prevRound) {
-    console.log(`[KO-TRACE] -> Rekursion abgebrochen: Vorrunde (${prevRoundKey}) nicht in koByRound existent.`);
-    return "?";
-  }
+  if (!prevRound) return "?";
 
   let sourceMatchIndex;
+  // Finale (Runde 4) hat bei dir eine Sonderbehandlung für Platz 3
   if (roundIndex === 4) {
     sourceMatchIndex = side === "A" ? 0 : 1; 
   } else {
@@ -138,25 +126,15 @@ export function getTeamFromPrevious(roundIndex, matchIndex, side, koByRound, tip
   }
 
   const sourceMatch = prevRound[sourceMatchIndex];
-  if (!sourceMatch) {
-    console.log(`[KO-TRACE] -> Rekursion abgebrochen: Quell-Match auf Vorrunden-Index ${sourceMatchIndex} existiert nicht.`);
-    return "?";
-  }
+  if (!sourceMatch) return "?";
 
   const winner = getWinner(sourceMatch.id, tips);
-  console.log(`[KO-TRACE] -> Prüfe Vorrunden-Match-ID: ${sourceMatch.id} (Index: ${sourceMatchIndex}). Getippter Gewinner-Index: ${winner}`);
-
-  if (!winner) {
-    console.log(`[KO-TRACE] -> Kein getippter Gewinner für Vorrunden-Match ${sourceMatch.id}. Breche ab mit "?"`);
-    return "?";
-  }
+  if (!winner) return "?";
 
   const isThirdPlaceMatch = (roundIndex === 4 && matchIndex === 1);
   let effectiveWinnerSide = (isThirdPlaceMatch) 
     ? (winner === 1 ? "B" : "A") 
     : (winner === 1 ? "A" : "B");
-
-  console.log(`[KO-TRACE] -> Gehe tiefer in Rekursion. Ermittle Team aus Vorrunde für Seite: ${effectiveWinnerSide}`);
 
   return getTeamFromPrevious(
     roundIndex - 1, sourceMatchIndex, effectiveWinnerSide, koByRound, tips, context
