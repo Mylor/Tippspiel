@@ -14,7 +14,7 @@ import BestThirdsTable from './BestThirdsTable';
 
 const KO_STRUCTURE = {
   round16: [
-    ["E1", "1E"], ["I1", "1I"], ["F1", "C2"], ["B2", "A2"],
+    ["E1", "1E"], ["I1", "1I"], ["B2", "A2"], ["F1", "C2"],
     ["K2", "L2"], ["H1", "J2"], ["D1", "1D"], ["G1", "1G"],
     ["C1", "F2"], ["E2", "I2"], ["A1", "1A"], ["L1", "1L"],
     ["J1", "H2"], ["D2", "G2"], ["B1", "1B"], ["K1", "1K"]

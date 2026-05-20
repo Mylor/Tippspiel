@@ -87,17 +87,17 @@ export function getTeamFromPrevious(roundIndex, matchIndex, side, koByRound, tip
     const rounds = Object.keys(koByRound).map(Number).sort((a, b) => a - b);
     const currentRoundKey = rounds[0];
     const currentMatch = koByRound[currentRoundKey]?.[matchIndex];
-    
-    
 
     if (currentMatch) {
-      // UMGEKEHRTE PRIORITÄT: Erst das echte Team prüfen, falls leer -> Platzhalter
+      // HIER WAR DAS PROBLEMKIND:
+      // Wenn wir in Phase 1 (User-Gesamtprognose) sind, MÜSSEN wir die Platzhalter priorisieren,
+      // weil dort die echten Teams durch den Admin-Sync schon belegt sein könnten.
+      // In Phase 2+ (oder für den Admin) wollen wir natürlich die realen Teams sehen.
       const slot = side === "A" 
-        ? (currentMatch.team_a || currentMatch.placeholder_a) 
-        : (currentMatch.team_b || currentMatch.placeholder_b);
+        ? (Number(currentPhaseId) === 1 ? (currentMatch.placeholder_a || currentMatch.team_a) : (currentMatch.team_a || currentMatch.placeholder_a))
+        : (Number(currentPhaseId) === 1 ? (currentMatch.placeholder_b || currentMatch.team_b) : (currentMatch.team_b || currentMatch.placeholder_b));
         
-      
-      // Falls es doch ein Platzhalter war, jagen wir ihn vorsichtshalber durch den Resolver
+      // Jage das ermittelte Kürzel (z.B. "A1" oder "1A") durch den User-Tabellen-Resolver
       return resolveSlot(slot, context);
     }
     return "?";
@@ -116,7 +116,7 @@ export function getTeamFromPrevious(roundIndex, matchIndex, side, koByRound, tip
     }
   }
 
-  // REKURSIONS-SCHRITT
+  // REKURSIONS-SCHRITT (Unverändert)
   const rounds = Object.keys(koByRound).map(Number).sort((a, b) => a - b);
   const prevRoundIndexInMap = rounds.indexOf(rounds.find(r => r >= 0)) + roundIndex - 1;
   const prevRoundKey = rounds[prevRoundIndexInMap];
@@ -148,7 +148,6 @@ export function getTeamFromPrevious(roundIndex, matchIndex, side, koByRound, tip
   let effectiveWinnerSide = (isThirdPlaceMatch) 
     ? (winner === 1 ? "B" : "A") 
     : (winner === 1 ? "A" : "B");
-
 
   return getTeamFromPrevious(
     roundIndex - 1, sourceMatchIndex, effectiveWinnerSide, koByRound, tips, context
