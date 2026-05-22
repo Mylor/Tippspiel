@@ -1,10 +1,49 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient";
 
+// --- IMPORT FLAG ICON COMPONENT ---
+import { FlagIcon } from "../Utils/teamUtils";
+
+// Kontrast-Hilfsfunktion für die Rückennummer auf dem Trikot
+const getContrastColor = (hexColor) => {
+  if (!hexColor || hexColor.length < 6) return "#000000";
+  const hex = hexColor.replace("#", "");
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+  return yiq >= 128 ? "#000000" : "#ffffff";
+};
+
+// Dynamische Trikot-Komponente mit Schutz-Kontur für schwarze Trikots
+const JerseyIcon = ({ color = "#000000", number = "", size = 32 }) => {
+  const isBlack = color === "#000000";
+  return (
+    <div style={{ position: "relative", width: size, height: size, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+      <svg viewBox="0 0 100 100" width="100%" height="100%" style={{ fill: color, stroke: isBlack ? "#4b5563" : "#000000", strokeWidth: 6, strokeLinejoin: "round" }}>
+        <path d="M 30,15 L 40,23 L 60,23 L 70,15 L 90,25 L 80,45 L 73,42 L 73,90 L 27,90 L 27,42 L 20,45 L 10,25 Z" />
+      </svg>
+      <span style={{
+        position: "absolute",
+        top: "54%",
+        left: "50%",
+        transform: "translate(-50%, -50%)",
+        fontSize: `${size * 0.35}px`,
+        fontWeight: "800",
+        color: getContrastColor(color),
+        lineHeight: 1
+      }}>
+        {number}
+      </span>
+    </div>
+  );
+};
+
 const AdminControlCenter = ({ onUpdate }) => {
   const [progress, setProgress] = useState([]);
   const [phases, setPhases] = useState([]);
   const [config, setConfig] = useState(null);
+  const [playerProfiles, setPlayerProfiles] = useState({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -14,15 +53,29 @@ const AdminControlCenter = ({ onUpdate }) => {
   const fetchAdminData = async () => {
     setLoading(true);
     try {
-      const [progRes, phaseRes, configRes] = await Promise.all([
+      const [progRes, phaseRes, configRes, playerRes] = await Promise.all([
         supabase.from("admin_tip_progress").select("*").order("player_id"),
         supabase.from("tip_phase").select("*").order("id"),
-        supabase.from("system_config").select("*").single()
+        supabase.from("system_config").select("*").single(),
+        supabase.from("player").select("display_name, name_color, jersey_number, supported_country")
       ]);
 
       setProgress(progRes.data || []);
       setPhases(phaseRes.data || []);
       setConfig(configRes.data);
+
+      const profileMap = {};
+      if (playerRes.data) {
+        playerRes.data.forEach(p => {
+          profileMap[p.display_name] = {
+            color: p.name_color || "#000000",
+            jerseyNumber: p.jersey_number || "",
+            supportedCountry: p.supported_country // Reinen Ländernamen speichern für FlagIcon
+          };
+        });
+      }
+      setPlayerProfiles(profileMap);
+
     } catch (err) {
       console.error("Fehler beim Laden der Admin-Daten:", err);
     } finally {
@@ -32,7 +85,6 @@ const AdminControlCenter = ({ onUpdate }) => {
 
   const updatePhase = async (id, field, value) => {
     setPhases(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
-
     try {
       const { error } = await supabase
         .from("tip_phase")
@@ -41,7 +93,6 @@ const AdminControlCenter = ({ onUpdate }) => {
 
       if (error) throw error;
       if (onUpdate) onUpdate(); 
-      
     } catch (err) {
       console.error("Fehler beim Phasen-Update:", err);
       fetchAdminData();
@@ -51,7 +102,6 @@ const AdminControlCenter = ({ onUpdate }) => {
 
   const updateGlobalLock = async (isLockedNow) => {
     setConfig(prev => ({ ...prev, tips_locked_global: isLockedNow }));
-    
     if (isLockedNow) {
       setPhases(prev => prev.map(p => ({ ...p, is_active: false, is_submitted: true })));
     } else {
@@ -76,7 +126,6 @@ const AdminControlCenter = ({ onUpdate }) => {
         .neq("id", 0);
 
       if (phaseError) throw phaseError;
-
       if (onUpdate) onUpdate(); 
     } catch (error) {
       console.error("Fehler bei globaler Sperre:", error);
@@ -87,9 +136,9 @@ const AdminControlCenter = ({ onUpdate }) => {
 
   if (loading) {
     return (
-      <div style={{ padding: "40px", textAlign: "center", fontFamily: "sans-serif", color: "#64748b" }}>
+      <div style={{ padding: "60px", textAlign: "center", fontFamily: "sans-serif", color: "#64748b" }}>
         <div style={spinnerStyle}></div>
-        <p style={{ marginTop: "12px", fontWeight: "500" }}>Lade Schaltzentrale...</p>
+        <p style={{ marginTop: "16px", fontWeight: "600", fontSize: "15px" }}>Lade Schaltzentrale...</p>
       </div>
     );
   }
@@ -98,25 +147,25 @@ const AdminControlCenter = ({ onUpdate }) => {
   const isGlobalLocked = config?.tips_locked_global || false;
 
   return (
-    <div style={{ padding: "24px", width: "100%", fontFamily: "system-ui, sans-serif", backgroundColor: "#f8fafc", minHeight: "100vh", boxSizing: "border-box" }}>
+    <div style={{ padding: "40px 32px", width: "100%", fontFamily: "system-ui, sans-serif", backgroundColor: "#f8fafc", minHeight: "100vh", boxSizing: "border-box" }}>
       
       {/* HEADER SECTION */}
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "32px", gap: "20px", flexWrap: "wrap" }}>
+      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "48px", gap: "24px", flexWrap: "wrap" }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: "26px", fontWeight: "800", color: "#0f172a", letterSpacing: "-0.5px" }}>🕹️ Admin Schaltzentrale</h2>
-          <p style={{ margin: "4px 0 0 0", fontSize: "14px", color: "#64748b" }}>Steuere die Sichtbarkeiten, Abgabefristen und überwache den Live-Tippstatus aller Spieler.</p>
+          <h2 style={{ margin: 0, fontSize: "30px", fontWeight: "800", color: "#0f172a", letterSpacing: "-0.5px" }}>🕹️ Admin Schaltzentrale</h2>
+          <p style={{ margin: "8px 0 0 0", fontSize: "15px", color: "#64748b" }}>Steuere die Sichtbarkeiten, Abgabefristen und überwache den Live-Tippstatus aller Spieler.</p>
         </div>
         
         {/* GLOBAL LOCK TOGGLE CARD */}
         <div style={{ 
-          padding: "16px 24px", 
+          padding: "20px 28px", 
           borderRadius: "16px", 
           background: isGlobalLocked ? "#fff5f5" : "#f0fdf4",
           border: `1px solid ${isGlobalLocked ? "#fecaca" : "#bbf7d0"}`,
-          boxShadow: "0 4px 6px -1px rgba(0,0,0,0.02), 0 2px 4px -1px rgba(0,0,0,0.01)",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.03)",
           transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)"
         }}>
-          <label style={{ fontWeight: "700", display: "flex", alignItems: "center", gap: "14px", cursor: "pointer" }}>
+          <label style={{ fontWeight: "700", display: "flex", alignItems: "center", gap: "16px", cursor: "pointer" }}>
             <input 
               type="checkbox" 
               checked={isGlobalLocked} 
@@ -124,10 +173,10 @@ const AdminControlCenter = ({ onUpdate }) => {
               style={checkboxGlobalStyle}
             />
             <div style={{ display: "flex", flexDirection: "column" }}>
-              <span style={{ fontSize: "14px", color: isGlobalLocked ? "#991b1b" : "#166534", letterSpacing: "0.5px" }}>
+              <span style={{ fontSize: "14px", color: isGlobalLocked ? "#991b1b" : "#166534", letterSpacing: "0.5px", fontWeight: "800" }}>
                 {isGlobalLocked ? "🚨 TURNIER KOMPLETT GESPERRT" : "✅ TIPPMODUS AKTIV"}
               </span>
-              <span style={{ fontSize: "11px", fontWeight: "500", color: isGlobalLocked ? "#dc2626" : "#15803d", opacity: 0.8, marginTop: "2px" }}>
+              <span style={{ fontSize: "12px", fontWeight: "500", color: isGlobalLocked ? "#dc2626" : "#15803d", opacity: 0.8, marginTop: "4px" }}>
                 {isGlobalLocked ? "Sämtliche Eingaben aller User sind eingefroren" : "User können tippen (sofern Phase geöffnet ist)"}
               </span>
             </div>
@@ -136,20 +185,19 @@ const AdminControlCenter = ({ onUpdate }) => {
       </header>
 
       {/* MONITORING & CONTROL TABLE */}
-      <div style={{ background: "white", borderRadius: "16px", border: "1px solid #e2e8f0", boxShadow: "0 10px 15px -3px rgba(0,0,0,0.04), 0 4px 6px -2px rgba(0,0,0,0.02)", overflow: "hidden" }}>
+      <div style={{ background: "white", borderRadius: "16px", border: "1px solid #e2e8f0", boxShadow: "0 10px 25px -5px rgba(0,0,0,0.05)", overflow: "hidden" }}>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
             <thead>
               <tr style={{ backgroundColor: "#f1f5f9" }}>
-                <th style={{ ...headerCellStyle, width: "220px" }}>
+                <th style={{ ...headerCellStyle, width: "280px" }}>
                   <span style={{ fontSize: "12px", textTransform: "uppercase", letterSpacing: "1px", color: "#475569", fontWeight: "700" }}>Spieler-Übersicht</span>
                 </th>
                 {phases.map(p => (
-                  <th key={p.id} style={{ ...headerCellStyle, borderLeft: "1px solid #e2e8f0", minWidth: "160px" }}>
-                    <div style={{ fontSize: "15px", color: "#0f172a", fontWeight: "700" }}>🏆 Phase {p.id}</div>
+                  <th key={p.id} style={{ ...headerCellStyle, borderLeft: "1px solid #e2e8f0", minWidth: "180px" }}>
+                    <div style={{ fontSize: "16px", color: "#0f172a", fontWeight: "800" }}>🏆 Phase {p.id}</div>
                     
-                    {/* Phase Controls Wrapper */}
-                    <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                    <div style={{ marginTop: "14px", display: "flex", flexDirection: "column", gap: "8px" }}>
                       <label style={{ ...labelStyle, color: p.is_active ? "#2563eb" : "#64748b" }}>
                         <input 
                           type="checkbox" 
@@ -163,8 +211,8 @@ const AdminControlCenter = ({ onUpdate }) => {
                         ...labelStyle, 
                         color: p.is_submitted ? "#e11d48" : "#64748b",
                         backgroundColor: p.is_submitted ? "#fff1f2" : "transparent",
-                        padding: p.is_submitted ? "2px 6px" : "2px 0",
-                        borderRadius: "4px"
+                        padding: p.is_submitted ? "4px 8px" : "4px 0",
+                        borderRadius: "6px"
                       }}>
                         <input 
                           type="checkbox" 
@@ -180,76 +228,85 @@ const AdminControlCenter = ({ onUpdate }) => {
               </tr>
             </thead>
             <tbody>
-              {players.map((playerName, index) => (
-                <tr key={playerName} style={{ 
-                  backgroundColor: index % 2 === 0 ? "white" : "#f8fafc",
-                  transition: "background-color 0.15s ease",
-                }}>
-                  {/* Player Name Cell */}
-                  <td style={{ 
-                    padding: "16px 20px", 
-                    fontWeight: "600", 
-                    color: "#1e293b", 
-                    fontSize: "14px",
-                    borderBottom: "1px solid #e2e8f0"
+              {players.map((playerName, index) => {
+                const profile = playerProfiles[playerName] || { color: "#000000", jerseyNumber: "", supportedCountry: "" };
+
+                return (
+                  <tr key={playerName} style={{ 
+                    backgroundColor: index % 2 === 0 ? "white" : "#f8fafc",
+                    transition: "background-color 0.15s ease",
                   }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                      <div style={avatarDummyStyle}>{playerName.charAt(0).toUpperCase()}</div>
-                      {playerName}
-                    </div>
-                  </td>
-                  
-                  {/* Phase Status Cells */}
-                  {phases.map(p => {
-                    const stats = progress.find(item => item.display_name === playerName && item.phase_id === p.id);
-                    const isDone = stats?.tipped_count === stats?.total_matches && stats?.prognosis_count === stats?.total_prognosis;
-                    
-                    return (
-                      <td key={p.id} style={{ 
-                        padding: "14px 16px", 
-                        textAlign: "center", 
-                        borderLeft: "1px solid #e2e8f0",
-                        borderBottom: "1px solid #e2e8f0",
-                        verticalAlign: "middle"
-                      }}>
-                        <div style={{ 
-                          display: "inline-flex", 
-                          flexDirection: "column", 
-                          alignItems: "center", 
-                          gap: "4px",
-                          background: isDone ? "#f0fdf4" : "#fafafa",
-                          padding: "8px 12px",
-                          borderRadius: "10px",
-                          border: `1px solid ${isDone ? "#bbf7d0" : "#e2e8f0"}`,
-                          minWidth: "90px",
-                          boxShadow: isDone ? "0 2px 4px rgba(34,197,94,0.05)" : "none"
-                        }}>
-                          <span style={{ fontSize: "12px", fontWeight: "600", color: "#334155" }}>
-                            ⚽ {stats?.tipped_count || 0}/{stats?.total_matches || 0}
-                          </span>
-                          
-                          {stats?.total_prognosis > 0 && (
-                            <span style={{ fontSize: "11px", fontWeight: "500", color: "#64748b" }}>
-                              🌳 {stats?.prognosis_count || 0}/{stats?.total_prognosis || 0}
-                            </span>
-                          )}
-                          
+                    {/* Spieler-Zelle */}
+                    <td style={{ padding: "20px 24px", borderBottom: "1px solid #e2e8f0" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                        <JerseyIcon color={profile.color} number={profile.jerseyNumber} size={38} />
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                           <span style={{ 
-                            fontSize: "12px",
-                            marginTop: "2px",
-                            display: "inline-block",
-                            transform: isDone ? "scale(1.1)" : "scale(1)",
-                            filter: isDone ? "none" : "saturate(0.5) opacity(0.6)",
-                            transition: "all 0.2s ease"
+                            fontWeight: "800", 
+                            color: profile.color === "#000000" ? "#0f172a" : profile.color, 
+                            fontSize: "15px" 
                           }}>
-                            {isDone ? "✅ FERTIG" : "⏳ OFFEN"}
+                            {playerName}
                           </span>
+                          {/* FIX: FlagIcon anstelle des fehlerhaften getFlagEmoji Text-Fallbacks */}
+                          {profile.supportedCountry && (
+                            <FlagIcon teamName={profile.supportedCountry} />
+                          )}
                         </div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
+                      </div>
+                    </td>
+                    
+                    {/* Status-Zellen */}
+                    {phases.map(p => {
+                      const stats = progress.find(item => item.display_name === playerName && item.phase_id === p.id);
+                      const isDone = stats?.tipped_count === stats?.total_matches && stats?.prognosis_count === stats?.total_prognosis;
+                      
+                      return (
+                        <td key={p.id} style={{ 
+                          padding: "18px 20px", 
+                          textAlign: "center", 
+                          borderLeft: "1px solid #e2e8f0",
+                          borderBottom: "1px solid #e2e8f0",
+                          verticalAlign: "middle"
+                        }}>
+                          <div style={{ 
+                            display: "inline-flex", 
+                            flexDirection: "column", 
+                            alignItems: "center", 
+                            gap: "6px",
+                            background: isDone ? "#f0fdf4" : "#fafafa",
+                            padding: "10px 16px",
+                            borderRadius: "12px",
+                            border: `1px solid ${isDone ? "#bbf7d0" : "#e2e8f0"}`,
+                            minWidth: "100px",
+                            boxShadow: isDone ? "0 2px 6px rgba(34,197,94,0.04)" : "none"
+                          }}>
+                            <span style={{ fontSize: "13px", fontWeight: "700", color: "#334155" }}>
+                              ⚽ {stats?.tipped_count || 0}/{stats?.total_matches || 0}
+                            </span>
+                            
+                            {stats?.total_prognosis > 0 && (
+                              <span style={{ fontSize: "12px", fontWeight: "600", color: "#64748b" }}>
+                                🌳 {stats?.prognosis_count || 0}/{stats?.total_prognosis || 0}
+                              </span>
+                            )}
+                            
+                            <span style={{ 
+                              fontSize: "11px",
+                              fontWeight: "800",
+                              marginTop: "2px",
+                              letterSpacing: "0.5px",
+                              color: isDone ? "#166534" : "#64748b"
+                            }}>
+                              {isDone ? "✅ FERTIG" : "⏳ OFFEN"}
+                            </span>
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -258,9 +315,8 @@ const AdminControlCenter = ({ onUpdate }) => {
   );
 };
 
-// --- REFRESHED UI STYLE OBJECTS ---
 const headerCellStyle = { 
-  padding: "16px 20px", 
+  padding: "20px 24px", 
   textAlign: "left", 
   verticalAlign: "top",
   borderBottom: "2px solid #cbd5e1"
@@ -277,36 +333,22 @@ const labelStyle = {
 };
 
 const checkboxGlobalStyle = {
-  width: "20px", 
-  height: "20px", 
+  width: "22px", 
+  height: "22px", 
   cursor: "pointer",
   accentColor: "#dc2626"
 };
 
 const checkboxRowStyle = {
-  width: "15px",
-  height: "15px",
+  width: "16px",
+  height: "16px",
   cursor: "pointer",
   accentColor: "#2563eb"
 };
 
-const avatarDummyStyle = {
-  width: "28px",
-  height: "28px",
-  borderRadius: "50%",
-  backgroundColor: "#e2e8f0",
-  color: "#475569",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  fontSize: "12px",
-  fontWeight: "bold",
-  border: "1px solid #cbd5e1"
-};
-
 const spinnerStyle = {
-  width: "40px",
-  height: "40px",
+  width: "44px",
+  height: "44px",
   border: "4px solid #f3f3f3",
   borderTop: "4px solid #3b82f6",
   borderRadius: "50%",
@@ -314,7 +356,6 @@ const spinnerStyle = {
   animation: "spin 1s linear infinite"
 };
 
-// Fügt Keyframe-Animation für den Lade-Spinner direkt hinzu falls benötigt
 if (typeof document !== "undefined") {
   const style = document.createElement("style");
   style.innerHTML = `@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`;

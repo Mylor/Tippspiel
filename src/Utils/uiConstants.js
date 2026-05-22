@@ -166,14 +166,14 @@ export const BRACKET_STYLES = {
   }
 };
 
-// --- RESTLICHE STYLES (DASHBOARD, GROUP TABLES ETC.) ---
+// --- EINHEITLICHE DASHBOARD STYLES (HELL) ---
 export const DASHBOARD_STYLES = {
   layout: { display: "flex", minHeight: "100vh", backgroundColor: "#f8fafc" },
   sidebar: { width: "240px", backgroundColor: "#fff", borderRight: "1px solid #e2e8f0", padding: "25px", display: "flex", flexDirection: "column", position: "fixed", height: "100vh", zIndex: 100 },
   mainContent: { flex: 1, marginLeft: "240px", padding: "40px", overflowX: "auto", minWidth: 0 },
   whiteCard: { backgroundColor: "#fff", padding: "25px", borderRadius: "16px", border: "1px solid #e2e8f0", boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)" },
   flexibleCard: { backgroundColor: "#fff", padding: "25px", borderRadius: "16px", border: "1px solid #e2e8f0", boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)", width: "fit-content", minWidth: "100%" },
-  profileBox: { marginBottom: "30px", paddingBottom: "20px", borderBottom: "1px solid #f1f5f9" },
+  profileBox: { display: "flex", alignItems: "center", gap: "15px", marginBottom: "30px", paddingBottom: "20px", borderBottom: "1px solid #f1f5f9" },
   badge: { fontSize: "11px", backgroundColor: "#e2e8f0", padding: "2px 8px", borderRadius: "10px", color: "#475569", fontWeight: "bold" },
   nav: { display: "flex", flexDirection: "column", gap: "6px", flex: 1 },
   sectionHeader: { fontSize: "11px", fontWeight: "800", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", margin: "15px 0 10px 5px" },
@@ -189,7 +189,25 @@ export const DASHBOARD_STYLES = {
   th: { textAlign: "left", padding: "15px", color: "#64748b", fontSize: "13px", fontWeight: "600" },
   td: { padding: "15px", borderBottom: "1px solid #f1f5f9" },
   myRow: { backgroundColor: "#f0f9ff", fontWeight: "700", color: "#0369a1" },
-  logoutButton: { padding: "12px", marginTop: "20px", cursor: "pointer", backgroundColor: "#fff", border: "1px solid #fee2e2", borderRadius: "10px", color: "#dc2626", fontWeight: "600" }
+  logoutButton: { padding: "12px", marginTop: "20px", cursor: "pointer", backgroundColor: "#fff", border: "1px solid #fee2e2", borderRadius: "10px", color: "#dc2626", fontWeight: "600" },
+  
+  // Neu hinzugefügt & visuell an das helle Design angepasst:
+  playerName: {
+    fontSize: "1.25rem",
+    fontWeight: "700",
+    color: "#0f172a", // Dunkles Anthrazit passend zu contentTitle
+    letterSpacing: "0.02em"
+  },
+  jerseyIconLarge: {
+    width: "48px",
+    height: "48px",
+    display: "inline-block",
+    verticalAlign: "middle"
+  },
+  jerseyIconMedium: {
+    width: "32px",
+    height: "32px"
+  }
 };
 
 export const getTabButtonStyle = (active) => ({
