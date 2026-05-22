@@ -122,7 +122,7 @@ const Dashboard = ({ player, onLogout }) => {
             </>
           )}
 
-          {/* Statistiken Bereich & Support */}
+          {/* Statistiken Bereich */}
           <hr style={DASHBOARD_STYLES.divider} />
           <p style={DASHBOARD_STYLES.sectionHeader}>Statistiken</p>
           <button 
@@ -132,7 +132,8 @@ const Dashboard = ({ player, onLogout }) => {
             📊 Punkte-Analyse
           </button>
           
-          {/* HIER: Der neue Button für Support & Feedback */}
+          {/* 💬 EIGENES ABTEIL FÜR SUPPORT & FEEDBACK */}
+          <hr style={DASHBOARD_STYLES.divider} />
           <button 
             onClick={() => setActivePhase("support_feedback")} 
             style={getTabButtonStyle(activePhase === "support_feedback")}
@@ -201,7 +202,6 @@ const Dashboard = ({ player, onLogout }) => {
             ) : activePhase === "bonus_questions" ? (
               <BonusQuestions userId={player.id} isReadOnly={isPhase1Locked} />
             ) : activePhase === "support_feedback" ? (
-              /* HIER: Unsere neue Komponente binden wir ein und übergeben die nötigen Props */
               <SupportFeedbackPage 
                 playerId={player.id} 
                 playerName={displayName} 
