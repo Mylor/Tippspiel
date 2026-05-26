@@ -4,7 +4,7 @@ import { BEST_THIRDS_STYLES } from '../Utils/uiConstants';
 
 /**
  * BestThirdsTable: Komponente zur Darstellung der Rangliste der Gruppendritten.
- * Nutzt nun zentralisierte Styles aus uiConstants.
+ * Nutzt zentralisierte Styles aus uiConstants und verarbeitet normierte Team-Objekte.
  */
 function BestThirdsTable({ 
   teams, 
@@ -16,20 +16,20 @@ function BestThirdsTable({
   
   if (!teams || teams.length === 0) return null;
 
-  // --- 1. LOGIK: GLEICHSTAND IDENTIFIZIEREN ---
+  // --- 1. LOGIK: GLEICHSTAND IDENTIFIZIEREN (Nutzt jetzt die normierten Keys) ---
   const tiedTeams = teams.filter((team, index) => {
     const next = teams[index + 1];
     const prev = teams[index - 1];
     
     const isTiedWithNext = next && 
       team.points === next.points && 
-      (team.goalDiff ?? team.diff) === (next.goalDiff ?? next.diff) && 
-      (team.goalsFor ?? team.goals) === (next.goalsFor ?? next.goals);
+      team.diff === next.diff && 
+      team.goals === next.goals;
       
     const isTiedWithPrev = prev && 
       team.points === prev.points && 
-      (team.goalDiff ?? team.diff) === (prev.goalDiff ?? prev.diff) && 
-      (team.goalsFor ?? team.goals) === (prev.goalsFor ?? prev.goals);
+      team.diff === prev.diff && 
+      team.goals === prev.goals;
 
     return isTiedWithNext || isTiedWithPrev;
   });
@@ -53,13 +53,13 @@ function BestThirdsTable({
           
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             {tiedTeams.map((team) => {
-              const displayName = team.team || team.name;
+              const displayName = team.team;
               return (
                 <div key={`tie-${displayName}`} style={BEST_THIRDS_STYLES.tieRow}>
                   <div style={{ display: "flex", alignItems: "center", gap: "10px", flex: 1 }}>
                     <FlagIcon teamName={displayName} />
                     <span style={{ fontSize: "0.9rem", fontWeight: "600" }}>
-                      {displayName} <span style={{ fontWeight: "400", color: "#718096" }}>(Gruppe {team.group || team.groupId})</span>
+                      {displayName} <span style={{ fontWeight: "400", color: "#718096" }}>(Gruppe {team.group})</span>
                     </span>
                   </div>
                   <input
@@ -67,13 +67,11 @@ function BestThirdsTable({
                     min="1"
                     placeholder="Rang"
                     value={manualRanks[displayName] || ""}
-                    // ABSICHERUNG: Nur rufen, wenn Funktion da ist UND editiert werden darf
                     onChange={(e) => {
                       if (typeof onSaveManualRank === 'function' && canEditRanks) {
                         onSaveManualRank(displayName, e.target.value);
                       }
                     }}
-                    // Input sperren, wenn Phase abgegeben oder Admin noch nicht alle Spiele hat
                     disabled={isSubmitted || !canEditRanks}
                     style={{
                       ...BEST_THIRDS_STYLES.tieInput,
@@ -108,26 +106,22 @@ function BestThirdsTable({
         
         <tbody>
           {teams.slice(0, 12).map((team, index) => {
-            const isQualified = index < 8;
-            const displayDiff = team.goalDiff !== undefined ? team.goalDiff : team.diff;
-            const displayGoals = team.goalsFor !== undefined ? team.goalsFor : team.goals;
-            const displayName = team.name || team.team;
-            const displayGroup = team.groupId || team.group;
+            const isQualified = index < 8; // Die besten 8 von 12 kommen weiter
 
             return (
-              <tr key={`${displayName}-${index}`} style={BEST_THIRDS_STYLES.row(isQualified)}>
+              <tr key={`${team.team}-${index}`} style={BEST_THIRDS_STYLES.row(isQualified)}>
                 <td style={{ ...BEST_THIRDS_STYLES.td(isQualified), width: "30px" }}>
                   {index + 1}.
                 </td>
 
                 <td style={{ ...BEST_THIRDS_STYLES.tdCenter(isQualified), width: "40px" }}>
-                  {displayGroup}
+                  {team.group}
                 </td>
 
                 <td style={BEST_THIRDS_STYLES.td(isQualified)}>
                   <div style={BEST_THIRDS_STYLES.teamCell}>
-                    <FlagIcon teamName={displayName} />
-                    {displayName}
+                    <FlagIcon teamName={team.team} />
+                    {team.team}
                   </div>
                 </td>
 
@@ -137,13 +131,13 @@ function BestThirdsTable({
 
                 <td style={{ 
                   ...BEST_THIRDS_STYLES.tdCenter(isQualified), 
-                  color: displayDiff < 0 ? "#e53e3e" : (displayDiff > 0 ? "#38a169" : (isQualified ? "#000" : "#718096")) 
+                  color: team.diff < 0 ? "#e53e3e" : (team.diff > 0 ? "#38a169" : (isQualified ? "#000" : "#718096")) 
                 }}>
-                  {displayDiff > 0 ? `+${displayDiff}` : displayDiff}
+                  {team.diff > 0 ? `+${team.diff}` : team.diff}
                 </td>
 
                 <td style={BEST_THIRDS_STYLES.tdCenter(isQualified)}>
-                  {displayGoals}
+                  {team.goals}
                 </td>
               </tr>
             );

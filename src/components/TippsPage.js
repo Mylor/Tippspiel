@@ -48,9 +48,9 @@ function TippsPage({ player, phaseId }) {
 
   // --- STATES ---
   const [matches, setMatches] = useState([]);         
-  const [tips, setTips] = useState({});               
+  const [tips, setTips] = useState({});              
   const [manualRanks, setManualRanks] = useState({}); 
-  const [phase, setPhase] = useState(null);           
+  const [phase, setPhase] = useState(null);          
   const [systemConfig, setSystemConfig] = useState(null); 
   const [isPlayerSubmitted, setIsPlayerSubmitted] = useState(false); 
   const [showConfirmModal, setShowConfirmModal] = useState(false);   
@@ -122,6 +122,17 @@ function TippsPage({ player, phaseId }) {
     phaseId 
   }), [groupResults, bestThirds, tips, phaseId]);
 
+  // HIER NEU: Exakte Prüfung der 72 Gruppenspiele
+  const allGroupMatchesFinished = useMemo(() => {
+    const groupMatches = matches.filter(m => m.stage === "group");
+    if (groupMatches.length === 0) return false;
+    return groupMatches.every(m => {
+      const t = tips[m.id];
+      return t && t.goals_a !== null && t.goals_a !== undefined && t.goals_a !== "";
+    });
+  }, [matches, tips]);
+
+  // HIER GEÄNDERT: Validierung inklusive Stichwahlen
   const completionStatus = useMemo(() => {
     const targets = { 1: { m: 72, p: 32 }, 2: { m: 16, p: 16 }, 3: { m: 8, p: 8 }, 4: { m: 4, p: 4 }, 5: { m: 10, p: 6 } };
     const currentTarget = targets[numericPhaseId] || { m: 0, p: 0 };
@@ -141,12 +152,59 @@ function TippsPage({ player, phaseId }) {
       return tips[key]?.winner !== null && tips[key]?.goals_a === null && tips[key]?.goals_b === null;
     }).length;
 
+    // Kontrollprüfungen für Stichwahlen
+    let groupRanksMissing = false;
+    if (numericPhaseId === 1) {
+      Object.keys(grouped).forEach(name => {
+        const groupMatches = grouped[name];
+        const teamsInGroup = allGroupsArray.find(g => g.id === name)?.teams || [];
+        const isFinished = groupMatches.length > 0 && groupMatches.every(m => {
+          const t = tips[m.id];
+          return t && t.goals_a !== null && t.goals_a !== undefined && t.goals_a !== "";
+        });
+        if (isFinished) {
+          const tied = teamsInGroup.filter((teamA, i) => 
+            teamsInGroup.some((teamB, j) => 
+              i !== j && teamA.points === teamB.points && teamA.diff === teamB.diff && teamA.goals === teamB.goals
+            )
+          );
+          if (tied.length > 0) {
+            const ranks = tied.map(t => manualRanks[t.team]);
+            if (ranks.some(r => r === null || r === undefined || r === "")) groupRanksMissing = true;
+            const clean = ranks.filter(r => r !== null && r !== undefined && r !== "");
+            if (new Set(clean).size !== clean.length) groupRanksMissing = true; // Duplikate verhindern
+          }
+        }
+      });
+    }
+
+    // Grenzbereich-Stichwahl bei Gruppendritten (Platz 8 vs Platz 9)
+    let thirdsRanksMissing = false;
+    if (numericPhaseId === 1 && allGroupMatchesFinished && bestThirds.length >= 9) {
+      const targetA = bestThirds[7];
+      const targetB = bestThirds[8];
+      if (targetA.points === targetB.points && targetA.diff === targetB.diff && targetA.goals === targetB.goals) {
+        const criticalTeams = bestThirds.filter(t => t.points === targetA.points && t.diff === targetA.diff && t.goals === targetA.goals);
+        const ranks = criticalTeams.map(t => manualRanks[t.team]);
+        if (ranks.some(r => r === null || r === undefined || r === "")) thirdsRanksMissing = true;
+        const clean = ranks.filter(r => r !== null && r !== undefined && r !== "");
+        if (new Set(clean).size !== clean.length) thirdsRanksMissing = true;
+      }
+    }
+
+    const isReady = matchesCount >= currentTarget.m && 
+                    prognosisCount >= currentTarget.p && 
+                    !groupRanksMissing && 
+                    !thirdsRanksMissing;
+
     return {
-      isReady: matchesCount >= currentTarget.m && prognosisCount >= currentTarget.p,
+      isReady,
       currentM: matchesCount, targetM: currentTarget.m,
-      currentP: prognosisCount, targetP: currentTarget.p
+      currentP: prognosisCount, targetP: currentTarget.p,
+      groupRanksMissing,
+      thirdsRanksMissing
     };
-  }, [tips, numericPhaseId]);
+  }, [tips, numericPhaseId, grouped, allGroupsArray, manualRanks, bestThirds, allGroupMatchesFinished]);
 
   const isReadOnly = phase?.is_submitted || systemConfig?.tips_locked_global || isPlayerSubmitted;
   const showContent = !systemConfig?.tips_locked_global;
@@ -376,11 +434,13 @@ function TippsPage({ player, phaseId }) {
                 🔒 Phase gesperrt
               </div>
             ) : (phase?.id === 5 ? completionStatus.currentM !== completionStatus.targetM : !completionStatus.isReady) ? (
+              /* HIER GEÄNDERT: Detailliertes Fehler-Feedback bei blockierter Abgabe */
               <div style={{ color: "#dc2626", fontWeight: "600", fontSize: "13px", padding: "8px 12px", border: "1px dashed #fca5a5", borderRadius: "8px", backgroundColor: "#fff5f5" }}>
-                ❌ Noch nicht alle Tipps wurden eingegeben ({phase?.id === 5 
-                  ? `${completionStatus.currentM}/${completionStatus.targetM} Spiele`
-                  : `${completionStatus.currentM}/${completionStatus.targetM} reale Spiele & ${completionStatus.currentP}/${completionStatus.targetP} Prognosen`
-                })
+                ❌ Abgabe gesperrt: {
+                  completionStatus.groupRanksMissing ? "Es fehlen noch Stichwahlen in den Tabellen!" :
+                  completionStatus.thirdsRanksMissing ? "Kritischer Gleichstand bei Gruppendritten (Platz 8 vs 9) benötigt Stichwahl!" :
+                  `${completionStatus.currentM}/${completionStatus.targetM} Spiele & ${completionStatus.currentP}/${completionStatus.targetP} Prognosen`
+                }
               </div>
             ) : (
               <button 
@@ -442,12 +502,23 @@ function TippsPage({ player, phaseId }) {
           <div style={{ flexGrow: 1 }}>
             <div id="tour-ko" style={{ ...getTourStyle('ko'), padding: "10px" }}>
               <h3 style={{ marginLeft: "20px" }}>KO-Phase</h3>
+              
+              {/* HIER NEU: Visueller Hinweis für den User bezüglich der 72-Spiele-Bremse */}
+              {numericPhaseId === 1 && !allGroupMatchesFinished && (
+                <div style={{ marginLeft: "20px", marginBottom: "15px", color: "#eab308", fontWeight: "600", fontSize: "14px", backgroundColor: "#fef08a", padding: "8px 12px", borderRadius: "8px", border: "1px solid #fde047", maxWidth: "500px" }}>
+                  ⚠️ Der KO-Baum wird erst freigeschaltet, wenn alle 72 Gruppenspiele vollständig getippt wurden.
+                </div>
+              )}
+
               <div style={{ display: "flex", flexDirection: "row", alignItems: "flex-start" }}>
                 <KOBracket 
                   koByRound={koByRound} tips={tips} treeHeight={treeHeight} roundNames={ROUND_NAMES} 
                   phase={{ ...phase, is_submitted: isReadOnly }} 
                   getTopPosition={(rIdx, mIdx) => getTopPosition(rIdx, mIdx, treeHeight, currentSpacing) - topOffset} 
+                  
+                  // HIER GEÄNDERT: Liefert erst Teams, wenn alle 72 Spiele getippt sind
                   getTeamFromPrevious={(rIdx, mIdx, side) => {
+                    if (numericPhaseId === 1 && !allGroupMatchesFinished) return null;
                     if (numericPhaseId === 1 && rIdx === 0) {
                       const matchPair = KO_STRUCTURE.round16[mIdx];
                       const slot = side === "A" ? matchPair[0] : matchPair[1];
@@ -455,8 +526,14 @@ function TippsPage({ player, phaseId }) {
                     }
                     return getTeamFromPrevious(rIdx, mIdx, side, koByRound, tips, tournamentContext);
                   }}
-                  resolveSlot={(slot) => resolveSlot(slot, tournamentContext)} 
-                  saveTip={isReadOnly ? null : saveTip} deleteKORound={isReadOnly ? null : deleteKORound} 
+                  resolveSlot={(slot) => {
+                    if (numericPhaseId === 1 && !allGroupMatchesFinished) return null;
+                    return resolveSlot(slot, tournamentContext);
+                  }} 
+                  
+                  // HIER GEÄNDERT: Sperrt Eingaben im KO-Baum vor Abschluss der 72 Spiele
+                  saveTip={isReadOnly || (numericPhaseId === 1 && !allGroupMatchesFinished) ? null : saveTip} 
+                  deleteKORound={isReadOnly ? null : deleteKORound} 
                   KO_STRUCTURE={KO_STRUCTURE} isAdmin={false} 
                 />
                 {numericPhaseId === 5 && (
