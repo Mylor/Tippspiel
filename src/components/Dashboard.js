@@ -29,7 +29,7 @@ const Dashboard = ({ player, onLogout }) => {
   const [loading, setLoading] = useState(true);
   const [isPhase1Locked, setIsPhase1Locked] = useState(false);
   
-  // HIER NEU: State für das Ein- und Ausklappen der Sidebar
+  // State für das Ein- und Ausklappen der Sidebar
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // Einheitliche 0-indizierte Tour-States
@@ -215,23 +215,23 @@ const Dashboard = ({ player, onLogout }) => {
     }
   };
 
-  if (loading) return <div style={{ padding: "20px" }}>Dashboard wird geladen...</div>;
+  if (loading) return <div style={{ padding: "20px", color: "#0f172a" }}>Dashboard wird geladen...</div>;
 
   const displayName = localPlayer.display_name && localPlayer.display_name !== "EMPTY" ? localPlayer.display_name : localPlayer.name;
 
+  // HIER ANGEPASST: Highlight-Stile nutzen jetzt helle Kontraste statt dunkler Hintergründe
   const getSidebarHighlightStyle = (elementId) => {
     const currentStepData = TOUR_STEPS[tourStep];
     if (!currentStepData) return {};
     
     const currentSubStepData = currentStepData.subSteps[tourSubStep];
     if (currentSubStepData?.id === elementId) {
-      const isProfileBox = elementId === "sidebar_profile";
       return {
         position: "relative",
         zIndex: 9999, 
-        boxShadow: "0 0 0 4px #f59e0b, 0 10px 30px rgba(245, 158, 11, 0.4)", 
+        boxShadow: "0 0 0 4px #f59e0b, 0 10px 30px rgba(245, 158, 11, 0.25)", 
         borderRadius: "12px",
-        backgroundColor: isProfileBox ? "#ffffff" : "#1e293b", 
+        backgroundColor: "#ffffff", // Immer hell im Lightmode verankern
         transition: "all 0.3s ease-in-out"
       };
     }
@@ -239,7 +239,6 @@ const Dashboard = ({ player, onLogout }) => {
   };
 
   return (
-    /* HIER GEÄNDERT: Absolut starres Viewport-Layout erzwingen. Kein globales Scrollen erlaubt! */
     <div style={{ 
       display: "flex", 
       height: "100vh", 
@@ -250,17 +249,17 @@ const Dashboard = ({ player, onLogout }) => {
       backgroundColor: "#f8fafc"
     }}>
       
-      {/* 🟣 SIDEBAR CONTAINER: Fest verankert, breiten-variabel & in sich scrollbar */}
+      {/* 🟣 SIDEBAR CONTAINER */}
       <aside style={{ 
         ...DASHBOARD_STYLES.sidebar, 
-        width: isSidebarCollapsed ? "80px" : "280px", // Dynamische Breite
+        width: isSidebarCollapsed ? "80px" : "280px", 
         minWidth: isSidebarCollapsed ? "80px" : "280px",
         height: "100%", 
         position: "relative", 
         zIndex: isFirstProfileStep ? 9999 : 10,
         display: "flex",
         flexDirection: "column",
-        overflowY: "auto", // Eigenes vertikales Scrollen
+        overflowY: "auto", 
         overflowX: "hidden",
         padding: isSidebarCollapsed ? "16px 8px" : "20px 16px",
         margin: 0,
@@ -269,12 +268,13 @@ const Dashboard = ({ player, onLogout }) => {
         borderRight: "1px solid #e2e8f0"
       }}>
         
-        {/* HIER NEU: Ein-/Ausklapp-Button ganz oben in der Sidebar */}
+        {/* Ein-/Ausklapp-Button */}
         <button 
           onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
           style={{
             alignSelf: isSidebarCollapsed ? "center" : "flex-end",
             backgroundColor: "#e2e8f0",
+            color: "#0f172a", // Dunkler Text
             border: "none",
             borderRadius: "6px",
             padding: "6px 10px",
@@ -300,7 +300,8 @@ const Dashboard = ({ player, onLogout }) => {
           gap: "14px", 
           padding: isSidebarCollapsed ? "8px" : "16px",
           boxSizing: "border-box",
-          border: isFirstProfileStep ? "1px solid #f59e0b" : DASHBOARD_STYLES.profileBox.border,
+          border: isFirstProfileStep ? "1px solid #f59e0b" : "1px solid #e2e8f0",
+          backgroundColor: "#ffffff", // Erzwinge hellen Hintergrund für die Karte
           ...getSidebarHighlightStyle("sidebar_profile"),
           alignItems: isSidebarCollapsed ? "center" : "stretch"
         }}>
@@ -309,16 +310,21 @@ const Dashboard = ({ player, onLogout }) => {
               <RetroJersey color={localPlayer.name_color} number={localPlayer.jersey_number} size={isSidebarCollapsed ? 40 : 48} />
             </div>
 
-            {/* Bei Collapse Text ausblenden */}
+            {/* HIER ANGEPASST: Textfarben auf dunkle Schifftöne korrigiert */}
             {!isSidebarCollapsed && (
               <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flexGrow: 1 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
                   <h2 style={{ 
-                    fontSize: "1.15rem", margin: 0, fontWeight: "800",
-                    color: isFirstProfileStep 
-                      ? (localPlayer.name_color === "#FFFFFF" || localPlayer.name_color === "#ffffff" ? "#0f172a" : localPlayer.name_color)
-                      : (localPlayer.name_color || "#FFFFFF"),
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
+                    fontSize: "1.15rem", 
+                    margin: 0, 
+                    fontWeight: "800",
+                    // Falls die Namensfarbe Weiß ist, weichen wir auf Dunkel aus, um Unsichtbarkeit zu verhindern
+                    color: (localPlayer.name_color && localPlayer.name_color.toLowerCase() !== "#ffffff") 
+                      ? localPlayer.name_color 
+                      : "#0f172a",
+                    overflow: "hidden", 
+                    textOverflow: "ellipsis", 
+                    whiteSpace: "nowrap"
                   }}>
                     {displayName}
                   </h2>
@@ -326,14 +332,21 @@ const Dashboard = ({ player, onLogout }) => {
                 </div>
                 
                 <div style={{ marginTop: "4px" }}>
-                  <span style={{ ...DASHBOARD_STYLES.badge, margin: 0, opacity: 0.9, display: "inline-block" }}>
+                  <span style={{ 
+                    ...DASHBOARD_STYLES.badge, 
+                    margin: 0, 
+                    backgroundColor: "#f1f5f9", 
+                    color: "#334155", // Dunkles Badge-Text
+                    fontWeight: "600",
+                    display: "inline-block" 
+                  }}>
                     {localPlayer.is_admin ? "Admin" : "Spieler"}
                   </span>
                 </div>
                 
                 <div style={{ 
                   fontSize: "0.8rem", 
-                  color: isFirstProfileStep ? "#64748b" : "rgba(255, 255, 255, 0.6)", 
+                  color: "#475569", // Klar lesbares Dunkelgrau statt weißer Transparenz
                   fontWeight: "600", 
                   marginTop: "4px" 
                 }}>
@@ -343,7 +356,7 @@ const Dashboard = ({ player, onLogout }) => {
             )}
           </div>
           
-          {/* Einstellungs-Button bei Collapse minimieren */}
+          {/* Profil-Einstellungen Button */}
           <div style={{ display: "flex", marginTop: "2px", width: "100%" }}>
             <button
               onClick={() => setActivePhase("profile")}
@@ -365,6 +378,7 @@ const Dashboard = ({ player, onLogout }) => {
         </div>
 
         {/* NAVIGATION */}
+        {/* HIER ANGEPASST: SectionHeaders auf sauberes Dunkelgrau (#475569) gesetzt */}
         <nav style={{ ...DASHBOARD_STYLES.nav, width: "100%", display: "flex", flexDirection: "column", gap: "4px" }}>
           <button 
             onClick={() => setActivePhase("ranking")} 
@@ -375,7 +389,7 @@ const Dashboard = ({ player, onLogout }) => {
           </button>
           
           <hr style={DASHBOARD_STYLES.divider} />
-          {!isSidebarCollapsed && <p style={DASHBOARD_STYLES.sectionHeader}>Tipp-Runden</p>}
+          {!isSidebarCollapsed && <p style={{ ...DASHBOARD_STYLES.sectionHeader, color: "#475569", fontWeight: "700" }}>Tipp-Runden</p>}
           
           <div style={{ ...getSidebarHighlightStyle("sidebar_phases"), display: "flex", flexDirection: "column", gap: "4px" }}>
             {allPhases.filter(p => p.is_active).map((p) => {
@@ -407,7 +421,7 @@ const Dashboard = ({ player, onLogout }) => {
           {localPlayer.is_admin && (
             <>
               <hr style={DASHBOARD_STYLES.divider} />
-              {!isSidebarCollapsed && <p style={DASHBOARD_STYLES.sectionHeader}>Admin-Bereich</p>}
+              {!isSidebarCollapsed && <p style={{ ...DASHBOARD_STYLES.sectionHeader, color: "#475569", fontWeight: "700" }}>Admin-Bereich</p>}
               <button onClick={() => setActivePhase("admin_control")} style={{ ...getPhaseButtonStyle(activePhase === "admin_control", false), justifyContent: isSidebarCollapsed ? "center" : "flex-start" }} title="Schaltzentrale">
                 {isSidebarCollapsed ? "🛡️" : "🛡️ Schaltzentrale"}
               </button>
@@ -418,7 +432,7 @@ const Dashboard = ({ player, onLogout }) => {
           )}
 
           <hr style={DASHBOARD_STYLES.divider} />
-          {!isSidebarCollapsed && <p style={DASHBOARD_STYLES.sectionHeader}>Statistiken</p>}
+          {!isSidebarCollapsed && <p style={{ ...DASHBOARD_STYLES.sectionHeader, color: "#475569", fontWeight: "700" }}>Statistiken</p>}
           
           <button 
             onClick={() => setActivePhase("points_analysis")} 
@@ -447,12 +461,12 @@ const Dashboard = ({ player, onLogout }) => {
         </button>
       </aside>
 
-      {/* 🟢 HAUPTBEREICH: Verhindert doppelte Scrollbalken und nagelt den horizontalen Scrollbalken unten fest */}
+      {/* 🟢 HAUPTBEREICH */}
       <main style={{ 
-        flex: 1, // Füllt automatisch exakt den restlichen Platz links neben der Sidebar aus
+        flex: 1, 
         height: "100%", 
-        overflow: "auto", // Einzige Scroll-Engine für den Inhalt!
-        padding: "24px 30px", // Schließt die Riesenlücke aus Bild image_251ba1.png
+        overflow: "auto", 
+        padding: "24px 30px", 
         boxSizing: "border-box",
         position: "relative", 
         zIndex: 1,
@@ -463,12 +477,12 @@ const Dashboard = ({ player, onLogout }) => {
         {activePhase === "ranking" ? (
           <>
             <section style={{ marginBottom: "30px", ...getSidebarHighlightStyle("dashboard_overview") }}>
-              <h3 style={DASHBOARD_STYLES.contentTitle}>Anstehende Partien</h3>
+              <h3 style={{ ...DASHBOARD_STYLES.contentTitle, color: "#0f172a" }}>Anstehende Partien</h3>
               <div style={DASHBOARD_STYLES.matchGrid}>
                 {nextMatches.map(m => (
                   <div key={m.id} style={DASHBOARD_STYLES.matchCard}>
                     <div style={DASHBOARD_STYLES.groupBadge}>Gruppe {m.group_name}</div>
-                    <div style={DASHBOARD_STYLES.matchTeams}>{m.team_a} vs. {m.team_b}</div>
+                    <div style={{ ...DASHBOARD_STYLES.matchTeams, color: "#0f172a" }}>{m.team_a} vs. {m.team_b}</div>
                     <button onClick={() => setActivePhase(m.phase_id)} style={DASHBOARD_STYLES.quickTippButton}>
                       Tippen
                     </button>
@@ -478,13 +492,13 @@ const Dashboard = ({ player, onLogout }) => {
             </section>
 
             <section style={DASHBOARD_STYLES.whiteCard}>
-              <h3 style={DASHBOARD_STYLES.contentTitle}>Aktuelle Rangliste</h3>
+              <h3 style={{ ...DASHBOARD_STYLES.contentTitle, color: "#0f172a" }}>Aktuelle Rangliste</h3>
               <table style={DASHBOARD_STYLES.table}>
                 <thead>
                   <tr style={DASHBOARD_STYLES.tableHeader}>
-                    <th style={{ ...DASHBOARD_STYLES.th, width: "60px" }}>Platz</th>
-                    <th style={DASHBOARD_STYLES.th}>Name</th>
-                    <th style={{ ...DASHBOARD_STYLES.th, textAlign: "right", width: "100px" }}>Punkte</th>
+                    <th style={{ ...DASHBOARD_STYLES.th, color: "#334155", width: "60px" }}>Platz</th>
+                    <th style={{ ...DASHBOARD_STYLES.th, color: "#334155" }}>Name</th>
+                    <th style={{ ...DASHBOARD_STYLES.th, color: "#334155", textAlign: "right", width: "100px" }}>Punkte</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -501,21 +515,25 @@ const Dashboard = ({ player, onLogout }) => {
                           borderBottom: "1px solid #e2e8f0"
                         }}
                       >
-                        <td style={{ ...DASHBOARD_STYLES.td, fontSize: "16px", fontWeight: "700" }}>
+                        <td style={{ ...DASHBOARD_STYLES.td, color: "#0f172a", fontSize: "16px", fontWeight: "700" }}>
                           {index + 1}.
                         </td>
                         <td style={{ ...DASHBOARD_STYLES.td, padding: "8px 12px" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
                             <RetroJersey color={entry.name_color} number={entry.jersey_number} size={36} />
                             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                              <span style={{ color: entry.name_color || "#0f172a", fontWeight: "800", fontSize: "1.1rem" }}>
+                              <span style={{ 
+                                color: (entry.name_color && entry.name_color.toLowerCase() !== "#ffffff") ? entry.name_color : "#0f172a", 
+                                fontWeight: "800", 
+                                fontSize: "1.1rem" 
+                              }}>
                                 {entryName}
                               </span>
                               {entry.supported_country && <FlagIcon teamName={entry.supported_country} />}
                             </div>
                           </div>
                         </td>
-                        <td style={{ ...DASHBOARD_STYLES.td, textAlign: "right", fontSize: "1.1rem" }}>
+                        <td style={{ ...DASHBOARD_STYLES.td, color: "#0f172a", textAlign: "right", fontSize: "1.1rem" }}>
                           <strong>{entry.points}</strong>
                         </td>
                       </tr>

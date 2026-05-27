@@ -59,7 +59,7 @@ function BestThirdsTable({
                 <div key={`tie-${displayName}`} style={BEST_THIRDS_STYLES.tieRow}>
                   <div style={{ display: "flex", alignItems: "center", gap: "10px", flex: 1 }}>
                     <FlagIcon teamName={displayName} />
-                    <span style={{ fontSize: "0.9rem", fontWeight: "600" }}>
+                    <span style={{ fontSize: "0.9rem", fontWeight: "600", color: '#1e293b' }}>
                       {displayName} <span style={{ fontWeight: "400", color: "#718096" }}>(Gruppe {team.group})</span>
                     </span>
                   </div>

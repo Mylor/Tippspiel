@@ -137,7 +137,7 @@ const GroupTable = ({
                 <div key={row.team} style={GROUP_TABLE_STYLES.swRow}>
                   <div style={{display:'flex', alignItems:'center', gap:'8px'}}>
                     <FlagIcon teamName={row.team} size="small" />
-                    <span style={{fontSize: '0.85rem', fontWeight: '500'}}>{row.team}</span>
+                    <span style={{ fontSize: '0.85rem', fontWeight: '600', color: '#1e293b' }}>{row.team}</span>
                   </div>
                   <input 
                     type="number" 

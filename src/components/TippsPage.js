@@ -477,7 +477,7 @@ function TippsPage({ player, phaseId }) {
             <div style={{ flexShrink: 0, width: "fit-content" }}>
               <div ref={groupRef}>
                 <div id="tour-groups" style={{ ...getTourStyle('groups'), padding: "10px", marginBottom: "20px" }}>
-                  <h3>Gruppenphase</h3>
+                  <h3 style={{ color: "#0f172a", fontSize: "1.3rem", fontWeight: "700", margin: "0 0 16px 0" }}>Gruppenphase</h3>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "30px", marginBottom: "40px", maxWidth: "1100px" }}>
                     {Object.keys(grouped).sort().map(name => (
                       <div key={name} style={{ position: 'relative' }}>
@@ -517,7 +517,7 @@ function TippsPage({ player, phaseId }) {
               seine echte Breite behält und nicht künstlich zusammengestaucht wird. */}
           <div style={{ flexShrink: 0, width: "fit-content" }}>
             <div id="tour-ko" style={{ ...getTourStyle('ko'), padding: "10px" }}>
-              <h3 style={{ marginLeft: "20px" }}>KO-Phase</h3>
+              <h3 style={{ marginLeft: "20px", color: "#0f172a", fontSize: "1.3rem", fontWeight: "700" }}>KO-Phase</h3>
               
               {numericPhaseId === 1 && !allGroupMatchesFinished && (
                 <div style={{ marginLeft: "20px", marginBottom: "15px", color: "#eab308", fontWeight: "600", fontSize: "14px", backgroundColor: "#fef08a", padding: "8px 12px", borderRadius: "8px", border: "1px solid #fde047", maxWidth: "500px" }}>
