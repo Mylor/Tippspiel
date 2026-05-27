@@ -18,7 +18,6 @@ const BonusQuestions = ({ userId, isReadOnly }) => {
   const [loading, setLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState("");
   
-  // ⏱️ Ein Speicher für die aktiven Timer (Debounce-Referenz)
   const debounceTimers = useRef({});
 
   useEffect(() => {
@@ -26,7 +25,6 @@ const BonusQuestions = ({ userId, isReadOnly }) => {
       fetchUserAnswers();
     }
     
-    // Cleanup-Funktion: Löscht alle Timer, falls die Komponente schließt
     return () => {
       Object.values(debounceTimers.current).forEach(clearTimeout);
     };
@@ -54,7 +52,6 @@ const BonusQuestions = ({ userId, isReadOnly }) => {
     }
   };
 
-  // 🛠️ Kern-Funktion, die die tatsächliche Datenbank-Arbeit erledigt
   const saveToDatabase = async (questionId, value) => {
     try {
       const { data: existingRow, error: fetchError } = await supabase
@@ -93,26 +90,21 @@ const BonusQuestions = ({ userId, isReadOnly }) => {
     }
   };
 
-  // 🎛️ Der Event-Handler, der entscheidet: Sofort oder mit Puffer?
   const handleSaveAnswer = (questionId, value, delay = 0) => {
     if (isReadOnly) return;
 
-    // 1. UI sofort updaten, damit der User sieht, was er eingibt
     setUserAnswers(prev => ({ ...prev, [questionId]: value }));
     setSaveStatus("Speichere...");
 
-    // 2. Falls für diese Frage bereits ein Timer läuft: abbrechen!
     if (debounceTimers.current[questionId]) {
       clearTimeout(debounceTimers.current[questionId]);
     }
 
     if (delay > 0) {
-      // ⏳ Wenn ein Delay gewünscht ist (beim Tippen im Zahlenfeld)
       debounceTimers.current[questionId] = setTimeout(() => {
         saveToDatabase(questionId, value);
       }, delay);
     } else {
-      // 🚀 Wenn kein Delay gewünscht ist (beim Dropdown-Klick)
       saveToDatabase(questionId, value);
     }
   };
@@ -120,7 +112,8 @@ const BonusQuestions = ({ userId, isReadOnly }) => {
   if (loading) return <div style={{ padding: "20px" }}>Deine Bonusfragen werden geladen...</div>;
 
   return (
-    <div style={{ padding: "20px", width: "100%", fontFamily: "sans-serif" }}>
+    /* 🟢 FIX: boxSizing hinzugefügt, damit das Padding die 100% Breite nicht sprengt */
+    <div style={{ padding: "20px", width: "100%", boxSizing: "border-box", fontFamily: "sans-serif" }}>
       
       <header style={{ marginBottom: "25px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "15px", flexWrap: "wrap" }}>
@@ -149,7 +142,8 @@ const BonusQuestions = ({ userId, isReadOnly }) => {
         </span>
       </header>
 
-      <div style={{ background: "white", padding: "20px", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
+      {/* 🟢 FIX: Auch hier boxSizing hinzugefügt */}
+      <div style={{ background: "white", padding: "20px", borderRadius: "12px", border: "1px solid #e2e8f0", boxSizing: "border-box" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
           {BONUS_QUESTIONS_CONFIG.map(q => (
             <div 
@@ -170,7 +164,6 @@ const BonusQuestions = ({ userId, isReadOnly }) => {
                   disabled={isReadOnly}
                   placeholder={isReadOnly ? "Kein Tipp" : "Anzahl..."}
                   value={userAnswers[q.id] || ""}
-                  // 🟢 HIER: Übergibt 600ms Pufferzeit für flüssiges Eintippen mehrstelliger Zahlen
                   onChange={(e) => handleSaveAnswer(q.id, e.target.value, 600)}
                   style={{
                     padding: "10px",
@@ -190,7 +183,6 @@ const BonusQuestions = ({ userId, isReadOnly }) => {
                   value={userAnswers[q.id] || ""}
                   disabled={isReadOnly}
                   placeholder={isReadOnly ? "Kein Tipp abgegeben" : "Wähle ein Land..."}
-                  // 🟢 HIER: 0ms Verzögerung, da Klicks im Dropdown sofort fixiert sind
                   onChange={(selectedTeam) => handleSaveAnswer(q.id, selectedTeam, 0)}
                 />
               )}

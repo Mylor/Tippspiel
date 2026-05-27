@@ -29,6 +29,9 @@ const Dashboard = ({ player, onLogout }) => {
   const [loading, setLoading] = useState(true);
   const [isPhase1Locked, setIsPhase1Locked] = useState(false);
   
+  // HIER NEU: State für das Ein- und Ausklappen der Sidebar
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
   // Einheitliche 0-indizierte Tour-States
   const [tourStep, setTourStep] = useState(0);
   const [tourSubStep, setTourSubStep] = useState(0);
@@ -51,7 +54,7 @@ const Dashboard = ({ player, onLogout }) => {
     if (!loading && localPlayer?.id) {
       if (localPlayer.finished_tutorial === false && tourStep === 0) {
         setTourStep(1);
-        setTourSubStep(0); // Startet sauber beim ersten Eintrag (Index 0)
+        setTourSubStep(0); 
         setActivePhase("profile"); 
       }
     }
@@ -95,7 +98,7 @@ const Dashboard = ({ player, onLogout }) => {
     } catch (error) {
       console.error("Fehler beim Laden:", error);
     } finally {
-      setLoading(false);
+      loading && setLoading(false);
     }
   }
 
@@ -104,7 +107,6 @@ const Dashboard = ({ player, onLogout }) => {
     return firstActive ? firstActive.id : "ranking";
   };
 
-  // Zurück-Handler für die Tour
   const handleTourPrev = () => {
     if (tourSubStep > 0) {
       setTourSubStep(prev => prev - 1);
@@ -124,7 +126,6 @@ const Dashboard = ({ player, onLogout }) => {
     }
   };
 
-  // Korrigierter, absolut ausfallsicherer Next-Handler für 0-Indizierung
   const handleTourNext = async () => {
     const currentStepData = TOUR_STEPS[tourStep];
     const totalSteps = Object.keys(TOUR_STEPS).length;
@@ -134,30 +135,22 @@ const Dashboard = ({ player, onLogout }) => {
       return;
     }
 
-    // Fall A: Es gibt noch Teilschritte im aktuellen Hauptschritt
     if (tourSubStep < currentStepData.subSteps.length - 1) {
       setTourSubStep(prev => prev + 1);
-    } 
-    // Fall B: Letzter Teilschritt erreicht -> Wechsel zum nächsten Hauptschritt
-    else if (tourStep < totalSteps) {
+    } else if (tourStep < totalSteps) {
       const nextStep = tourStep + 1;
-      
       if (TOUR_STEPS[nextStep]) {
         let nextPhase = TOUR_STEPS[nextStep].phase;
-        
         if (nextPhase === "FIRST_ACTIVE_PHASE") {
           nextPhase = getFirstActivePhaseId();
         }
-
         setActivePhase(nextPhase || "ranking");
         setTourStep(nextStep);
-        setTourSubStep(0); // Zurücksetzen auf den ersten Teilschritt (Index 0)
+        setTourSubStep(0); 
       } else {
         await finishTutorialInDB();
       }
-    } 
-    // Fall C: Tutorial beendet
-    else {
+    } else {
       await finishTutorialInDB();
     }
   };
@@ -174,7 +167,6 @@ const Dashboard = ({ player, onLogout }) => {
         .eq("id", localPlayer.id);
 
       if (error) throw error;
-
       setLocalPlayer(prev => ({ ...prev, finished_tutorial: true }));
       setTourStep(0);
       setTourSubStep(0);
@@ -192,7 +184,6 @@ const Dashboard = ({ player, onLogout }) => {
         .eq("id", localPlayer.id);
 
       if (error) throw error;
-
       setLocalPlayer(prev => ({ ...prev, finished_tutorial: false }));
       setActivePhase("profile");
       setTourStep(1);
@@ -228,7 +219,6 @@ const Dashboard = ({ player, onLogout }) => {
 
   const displayName = localPlayer.display_name && localPlayer.display_name !== "EMPTY" ? localPlayer.display_name : localPlayer.name;
 
-  // Scheinwerfer-Effekt für Sidebar-Elemente (Strikt Gold, weißer Hintergrund für Profilbox im ersten Schritt)
   const getSidebarHighlightStyle = (elementId) => {
     const currentStepData = TOUR_STEPS[tourStep];
     if (!currentStepData) return {};
@@ -238,10 +228,10 @@ const Dashboard = ({ player, onLogout }) => {
       const isProfileBox = elementId === "sidebar_profile";
       return {
         position: "relative",
-        zIndex: 9999, // Bricht durch jede Abdunklung durch
-        boxShadow: "0 0 0 4px #f59e0b, 0 10px 30px rgba(245, 158, 11, 0.4)", // Reines Gold-Highlight
+        zIndex: 9999, 
+        boxShadow: "0 0 0 4px #f59e0b, 0 10px 30px rgba(245, 158, 11, 0.4)", 
         borderRadius: "12px",
-        backgroundColor: isProfileBox ? "#ffffff" : "#1e293b", // Erzwungener weißer Hintergrund im ersten Schritt
+        backgroundColor: isProfileBox ? "#ffffff" : "#1e293b", 
         transition: "all 0.3s ease-in-out"
       };
     }
@@ -249,14 +239,58 @@ const Dashboard = ({ player, onLogout }) => {
   };
 
   return (
-    <div style={{ ...DASHBOARD_STYLES.layout, overflowX: "hidden" }}>
+    /* HIER GEÄNDERT: Absolut starres Viewport-Layout erzwingen. Kein globales Scrollen erlaubt! */
+    <div style={{ 
+      display: "flex", 
+      height: "100vh", 
+      width: "100vw", 
+      overflow: "hidden", 
+      margin: 0, 
+      padding: 0,
+      backgroundColor: "#f8fafc"
+    }}>
       
-      {/* 🟣 SIDEBAR */}
+      {/* 🟣 SIDEBAR CONTAINER: Fest verankert, breiten-variabel & in sich scrollbar */}
       <aside style={{ 
         ...DASHBOARD_STYLES.sidebar, 
+        width: isSidebarCollapsed ? "80px" : "280px", // Dynamische Breite
+        minWidth: isSidebarCollapsed ? "80px" : "280px",
+        height: "100%", 
         position: "relative", 
-        zIndex: isFirstProfileStep ? 9999 : 10 
+        zIndex: isFirstProfileStep ? 9999 : 10,
+        display: "flex",
+        flexDirection: "column",
+        overflowY: "auto", // Eigenes vertikales Scrollen
+        overflowX: "hidden",
+        padding: isSidebarCollapsed ? "16px 8px" : "20px 16px",
+        margin: 0,
+        boxSizing: "border-box",
+        transition: "width 0.3s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.3s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s ease",
+        borderRight: "1px solid #e2e8f0"
       }}>
+        
+        {/* HIER NEU: Ein-/Ausklapp-Button ganz oben in der Sidebar */}
+        <button 
+          onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          style={{
+            alignSelf: isSidebarCollapsed ? "center" : "flex-end",
+            backgroundColor: "#e2e8f0",
+            border: "none",
+            borderRadius: "6px",
+            padding: "6px 10px",
+            cursor: "pointer",
+            fontSize: "14px",
+            fontWeight: "bold",
+            marginBottom: "12px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            transition: "background-color 0.2s"
+          }}
+          title={isSidebarCollapsed ? "Sidebar ausklappen" : "Sidebar einklappen"}
+        >
+          {isSidebarCollapsed ? "➡️" : "⬅️ Minimieren"}
+        </button>
         
         {/* PROFILE BOX */}
         <div style={{ 
@@ -264,48 +298,52 @@ const Dashboard = ({ player, onLogout }) => {
           display: "flex", 
           flexDirection: "column",
           gap: "14px", 
-          padding: "16px",
+          padding: isSidebarCollapsed ? "8px" : "16px",
           boxSizing: "border-box",
           border: isFirstProfileStep ? "1px solid #f59e0b" : DASHBOARD_STYLES.profileBox.border,
-          ...getSidebarHighlightStyle("sidebar_profile")
+          ...getSidebarHighlightStyle("sidebar_profile"),
+          alignItems: isSidebarCollapsed ? "center" : "stretch"
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "14px", width: "100%", justifyContent: isSidebarCollapsed ? "center" : "flex-start" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <RetroJersey color={localPlayer.name_color} number={localPlayer.jersey_number} size={48} />
+              <RetroJersey color={localPlayer.name_color} number={localPlayer.jersey_number} size={isSidebarCollapsed ? 40 : 48} />
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flexGrow: 1 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
-                <h2 style={{ 
-                  fontSize: "1.15rem", margin: 0, fontWeight: "800",
-                  // Verhindert unsichtbaren weißen Text auf weißem Highlight-Hintergrund
-                  color: isFirstProfileStep 
-                    ? (localPlayer.name_color === "#FFFFFF" || localPlayer.name_color === "#ffffff" ? "#0f172a" : localPlayer.name_color)
-                    : (localPlayer.name_color || "#FFFFFF"),
-                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
+            {/* Bei Collapse Text ausblenden */}
+            {!isSidebarCollapsed && (
+              <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flexGrow: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                  <h2 style={{ 
+                    fontSize: "1.15rem", margin: 0, fontWeight: "800",
+                    color: isFirstProfileStep 
+                      ? (localPlayer.name_color === "#FFFFFF" || localPlayer.name_color === "#ffffff" ? "#0f172a" : localPlayer.name_color)
+                      : (localPlayer.name_color || "#FFFFFF"),
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
+                  }}>
+                    {displayName}
+                  </h2>
+                  {localPlayer.supported_country && <FlagIcon teamName={localPlayer.supported_country} />}
+                </div>
+                
+                <div style={{ marginTop: "4px" }}>
+                  <span style={{ ...DASHBOARD_STYLES.badge, margin: 0, opacity: 0.9, display: "inline-block" }}>
+                    {localPlayer.is_admin ? "Admin" : "Spieler"}
+                  </span>
+                </div>
+                
+                <div style={{ 
+                  fontSize: "0.8rem", 
+                  color: isFirstProfileStep ? "#64748b" : "rgba(255, 255, 255, 0.6)", 
+                  fontWeight: "600", 
+                  marginTop: "4px" 
                 }}>
-                  {displayName}
-                </h2>
-                {localPlayer.supported_country && <FlagIcon teamName={localPlayer.supported_country} />}
+                  Trikotnummer: #{localPlayer.jersey_number || "—"}
+                </div>
               </div>
-              
-              <div style={{ marginTop: "4px" }}>
-                <span style={{ ...DASHBOARD_STYLES.badge, margin: 0, opacity: 0.9, display: "inline-block" }}>
-                  {localPlayer.is_admin ? "Admin" : "Spieler"}
-                </span>
-              </div>
-              
-              <div style={{ 
-                fontSize: "0.8rem", 
-                color: isFirstProfileStep ? "#64748b" : "rgba(255, 255, 255, 0.6)", 
-                fontWeight: "600", 
-                marginTop: "4px" 
-              }}>
-                Trikotnummer: #{localPlayer.jersey_number || "—"}
-              </div>
-            </div>
+            )}
           </div>
           
+          {/* Einstellungs-Button bei Collapse minimieren */}
           <div style={{ display: "flex", marginTop: "2px", width: "100%" }}>
             <button
               onClick={() => setActivePhase("profile")}
@@ -315,37 +353,40 @@ const Dashboard = ({ player, onLogout }) => {
                 fontWeight: "600", fontSize: "13px", display: "flex",
                 alignItems: "center", justifyContent: "center", gap: "6px", width: "100%"
               }}
+              title="Profil & Einstellungen"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
                 <circle cx="12" cy="12" r="3"/>
               </svg>
-              <span>Profil & Einstellungen</span>
+              {!isSidebarCollapsed && <span>Profil & Einstellungen</span>}
             </button>
           </div>
         </div>
 
         {/* NAVIGATION */}
-        <nav style={DASHBOARD_STYLES.nav}>
+        <nav style={{ ...DASHBOARD_STYLES.nav, width: "100%", display: "flex", flexDirection: "column", gap: "4px" }}>
           <button 
             onClick={() => setActivePhase("ranking")} 
-            style={{ ...getTabButtonStyle(activePhase === "ranking"), ...getSidebarHighlightStyle("sidebar_home") }}
+            style={{ ...getTabButtonStyle(activePhase === "ranking"), ...getSidebarHighlightStyle("sidebar_home"), justifyContent: isSidebarCollapsed ? "center" : "flex-start" }}
+            title="Startseite"
           >
-            🏠 Startseite
+            {isSidebarCollapsed ? "🏠" : "🏠 Startseite"}
           </button>
           
           <hr style={DASHBOARD_STYLES.divider} />
-          <p style={DASHBOARD_STYLES.sectionHeader}>Tipp-Runden</p>
+          {!isSidebarCollapsed && <p style={DASHBOARD_STYLES.sectionHeader}>Tipp-Runden</p>}
           
-          <div style={getSidebarHighlightStyle("sidebar_phases")}>
+          <div style={{ ...getSidebarHighlightStyle("sidebar_phases"), display: "flex", flexDirection: "column", gap: "4px" }}>
             {allPhases.filter(p => p.is_active).map((p) => {
               return (
                 <button 
                   key={p.id} 
                   onClick={() => setActivePhase(p.id)} 
-                  style={getPhaseButtonStyle(activePhase === p.id, systemConfig?.current_phase_id === p.id)}
+                  style={{ ...getPhaseButtonStyle(activePhase === p.id, systemConfig?.current_phase_id === p.id), justifyContent: isSidebarCollapsed ? "center" : "flex-start" }}
+                  title={`Phase ${p.id}`}
                 >
-                  Phase {p.id} {p.is_submitted && " 🔒"} 
+                  {isSidebarCollapsed ? `P${p.id}` : `Phase ${p.id} ${p.is_submitted ? " 🔒" : ""}`}
                 </button>
               );
             })}
@@ -355,54 +396,64 @@ const Dashboard = ({ player, onLogout }) => {
             onClick={() => setActivePhase("bonus_questions")} 
             style={{
               ...getPhaseButtonStyle(activePhase === "bonus_questions", systemConfig?.current_phase_id === 1),
-              ...getSidebarHighlightStyle("sidebar_bonus")
+              ...getSidebarHighlightStyle("sidebar_bonus"),
+              justifyContent: isSidebarCollapsed ? "center" : "flex-start"
             }}
+            title="Bonusfragen"
           >
-            🏆 Bonusfragen {isPhase1Locked ? " 🔒" : ""}
+            {isSidebarCollapsed ? "🏆" : `🏆 Bonusfragen ${isPhase1Locked ? " 🔒" : ""}`}
           </button>
 
           {localPlayer.is_admin && (
             <>
               <hr style={DASHBOARD_STYLES.divider} />
-              <p style={DASHBOARD_STYLES.sectionHeader}>Admin-Bereich</p>
-              <button onClick={() => setActivePhase("admin_control")} style={getPhaseButtonStyle(activePhase === "admin_control", false)}>
-                🛡️ Schaltzentrale
+              {!isSidebarCollapsed && <p style={DASHBOARD_STYLES.sectionHeader}>Admin-Bereich</p>}
+              <button onClick={() => setActivePhase("admin_control")} style={{ ...getPhaseButtonStyle(activePhase === "admin_control", false), justifyContent: isSidebarCollapsed ? "center" : "flex-start" }} title="Schaltzentrale">
+                {isSidebarCollapsed ? "🛡️" : "🛡️ Schaltzentrale"}
               </button>
-              <button onClick={() => setActivePhase("admin_results")} style={getPhaseButtonStyle(activePhase === "admin_results", false)}>
-                ⚽ Ergebnisse eintragen
+              <button onClick={() => setActivePhase("admin_results")} style={{ ...getPhaseButtonStyle(activePhase === "admin_results", false), justifyContent: isSidebarCollapsed ? "center" : "flex-start" }} title="Ergebnisse eintragen">
+                {isSidebarCollapsed ? "⚽" : "⚽ Ergebnisse eintragen"}
               </button>
             </>
           )}
 
           <hr style={DASHBOARD_STYLES.divider} />
-          <p style={DASHBOARD_STYLES.sectionHeader}>Statistiken</p>
+          {!isSidebarCollapsed && <p style={DASHBOARD_STYLES.sectionHeader}>Statistiken</p>}
           
           <button 
             onClick={() => setActivePhase("points_analysis")} 
-            style={{ ...getTabButtonStyle(activePhase === "points_analysis"), ...getSidebarHighlightStyle("sidebar_points") }}
+            style={{ ...getTabButtonStyle(activePhase === "points_analysis"), ...getSidebarHighlightStyle("sidebar_points"), justifyContent: isSidebarCollapsed ? "center" : "flex-start" }}
+            title="Punkte-Analyse"
           >
-            📊 Punkte-Analyse
+            {isSidebarCollapsed ? "📊" : "📊 Punkte-Analyse"}
           </button>
 
           <button 
             onClick={() => setActivePhase("global_statistics")} 
-            style={{ ...getTabButtonStyle(activePhase === "global_statistics"), ...getSidebarHighlightStyle("sidebar_stats") }}
+            style={{ ...getTabButtonStyle(activePhase === "global_statistics"), ...getSidebarHighlightStyle("sidebar_stats"), justifyContent: isSidebarCollapsed ? "center" : "flex-start" }}
+            title="Statistik-Center"
           >
-            📈 Statistik-Center
+            {isSidebarCollapsed ? "📈" : "📈 Statistik-Center"}
           </button>
           
           <hr style={DASHBOARD_STYLES.divider} />
-          <button onClick={() => setActivePhase("support_feedback")} style={getTabButtonStyle(activePhase === "support_feedback")}>
-            💬 Support & Feedback
+          <button onClick={() => setActivePhase("support_feedback")} style={{ ...getTabButtonStyle(activePhase === "support_feedback"), justifyContent: isSidebarCollapsed ? "center" : "flex-start" }} title="Support & Feedback">
+            {isSidebarCollapsed ? "💬" : "💬 Support & Feedback"}
           </button>
         </nav>
 
-        <button onClick={onLogout} style={DASHBOARD_STYLES.logoutButton}>Abmelden</button>
+        <button onClick={onLogout} style={{ ...DASHBOARD_STYLES.logoutButton, marginTop: "auto" }}>
+          {isSidebarCollapsed ? "❌" : "Abmelden"}
+        </button>
       </aside>
 
-      {/* 🟢 HAUPTBEREICH: Erhält dynamischen Blur-Effekt im ersten Teilschritt */}
+      {/* 🟢 HAUPTBEREICH: Verhindert doppelte Scrollbalken und nagelt den horizontalen Scrollbalken unten fest */}
       <main style={{ 
-        ...DASHBOARD_STYLES.mainContent, 
+        flex: 1, // Füllt automatisch exakt den restlichen Platz links neben der Sidebar aus
+        height: "100%", 
+        overflow: "auto", // Einzige Scroll-Engine für den Inhalt!
+        padding: "24px 30px", // Schließt die Riesenlücke aus Bild image_251ba1.png
+        boxSizing: "border-box",
         position: "relative", 
         zIndex: 1,
         filter: isFirstProfileStep ? "blur(10px) brightness(0.85)" : "none",
@@ -411,7 +462,6 @@ const Dashboard = ({ player, onLogout }) => {
       }}>
         {activePhase === "ranking" ? (
           <>
-            {/* BUGFIX: Doppeltes style-Attribut zu einem Objekt gemergt */}
             <section style={{ marginBottom: "30px", ...getSidebarHighlightStyle("dashboard_overview") }}>
               <h3 style={DASHBOARD_STYLES.contentTitle}>Anstehende Partien</h3>
               <div style={DASHBOARD_STYLES.matchGrid}>
@@ -520,7 +570,7 @@ const Dashboard = ({ player, onLogout }) => {
       </main>
 
       {/* RENDERING DER EXTERNEN TOUR-ENGINE */}
-      {tourStep > 0 /*&& (tourStep !== 1 && tourStep !== 2 || tourSubStep === 0) */ &&  (
+      {tourStep > 0 && (
         <InteractiveTour 
           tourStep={tourStep}
           tourSubStep={tourSubStep}

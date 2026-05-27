@@ -273,7 +273,7 @@ function TippsPage({ player, phaseId }) {
       const { data } = await supabase.from("tip_final_matrix").select("*").eq("player_id", player.id);
       if (data) matrixData = data;
     }
-    const { data: rankData } = await supabase.from("tip_manual_rank").select("*").eq("player_id", player.id).eq("phase_id", phaseId);
+    const { data: rankData = [] } = await supabase.from("tip_manual_rank").select("*").eq("player_id", player.id).eq("phase_id", phaseId);
 
     const map = {};
     normalData?.forEach((t) => (map[t.match_id] = t));
@@ -419,7 +419,9 @@ function TippsPage({ player, phaseId }) {
   if (!player || !phaseId) return <div style={{ padding: "20px" }}>Lade Benutzerdaten...</div>;
 
   return (
-    <div style={{ padding: "20px", width: "100%", overflowX: "auto", position: "relative" }}>
+    /* HIER GEÄNDERT: overflowX: "auto" entfernt, damit die Dashboard-Scrollbar greift. 
+       width auf "max-content" gestellt, um die feste Box-Begrenzung aufzuheben. */
+    <div style={{ padding: "20px", width: "max-content", minWidth: "100%", position: "relative" }}>
       
       {showContent && (
         <div id="tour-intro" style={{ ...getTourStyle('intro'), display: "flex", justifyContent: "flex-start", alignItems: "center", marginBottom: "20px", padding: "10px", backgroundColor: "#f8fafc", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
@@ -468,7 +470,9 @@ function TippsPage({ player, phaseId }) {
       )}
 
       {showContent ? (
-        <div style={{ display: "flex", flexDirection: "row", gap: "40px", alignItems: "flex-start" }}>
+        /* HIER GEÄNDERT: width: "max-content" und paddingRight ergänzt, um das Abschneiden 
+           und Rausbrechen der Komponenten am rechten Bildschirmrand komplett zu verhindern. */
+        <div style={{ display: "flex", flexDirection: "row", gap: "40px", alignItems: "flex-start", width: "max-content", minWidth: "100%", paddingRight: "40px" }}>
           {numericPhaseId === 1 && (
             <div style={{ flexShrink: 0, width: "fit-content" }}>
               <div ref={groupRef}>
@@ -491,7 +495,6 @@ function TippsPage({ player, phaseId }) {
                   )}
                 </div>
 
-                {/* HIER GEÄNDERT: Die gesamte Sektion blendet sich erst ein, wenn alle 72 Spiele getippt sind */}
                 {allGroupMatchesFinished && (
                   <div id="tour-thirds" style={{ ...getTourStyle('thirds'), padding: "10px" }}>
                     <BestThirdsTable 
@@ -499,7 +502,7 @@ function TippsPage({ player, phaseId }) {
                       manualRanks={manualRanks} 
                       onSaveManualRank={saveManualRank} 
                       isSubmitted={isReadOnly} 
-                      isGroupPhaseComplete={allGroupMatchesFinished} // Reicht den Status weiter
+                      isGroupPhaseComplete={allGroupMatchesFinished} 
                     />
                     {currentTourStep?.id === 'thirds' && (
                       <TourTooltip step={currentTourIndex} totalSteps={tourSteps.length} text={currentTourStep.text} placement={currentTourStep.placement} onNext={handleTourNext} onPrev={handleTourPrev} onClose={() => setCurrentTourIndex(null)} />
@@ -510,7 +513,9 @@ function TippsPage({ player, phaseId }) {
             </div>
           )}
 
-          <div style={{ flexGrow: 1 }}>
+          {/* HIER GEÄNDERT: flexShrink: 0 und width: "fit-content" gesetzt, damit der KO-Baum 
+              seine echte Breite behält und nicht künstlich zusammengestaucht wird. */}
+          <div style={{ flexShrink: 0, width: "fit-content" }}>
             <div id="tour-ko" style={{ ...getTourStyle('ko'), padding: "10px" }}>
               <h3 style={{ marginLeft: "20px" }}>KO-Phase</h3>
               
