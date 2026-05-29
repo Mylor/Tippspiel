@@ -111,7 +111,7 @@ function TippsPage({ player, phaseId }) {
 
   // VALIDIERUNG INKLUSIVE STICHWAHLEN
   const completionStatus = useMemo(() => {
-    const targets = { 1: { m: 72, p: 32 }, 2: { m: 16, p: 16 }, 3: { m: 8, p: 8 }, 4: { m: 4, p: 4 }, 5: { m: 10, p: 6 } };
+    const targets = { 1: { m: 72, p: 32 }, 2: { m: 16, p: 16 }, 3: { m: 8, p: 8 }, 4: { m: 4, p: 4 }, 5: { m: 10, p: 0 } };
     const currentTarget = targets[numericPhaseId] || { m: 0, p: 0 };
 
     let matchesCount = Object.keys(tips).filter(key => {
@@ -227,7 +227,7 @@ function TippsPage({ player, phaseId }) {
 
   async function fetchPlayerSubmission() {
     if (!player?.id || !phaseId) return;
-    const { data } = await supabase.from("player_phase_submission").select("is_submitted").eq("player_id", player.id).eq("phase_id", phaseId).single();
+    const { data } = await supabase.from("player_phase_submission").select("is_submitted").eq("player_id", player.id).eq("phase_id", phaseId).maybeSingle();
     if (data) setIsPlayerSubmitted(data.is_submitted);
   }
 
@@ -315,6 +315,11 @@ function TippsPage({ player, phaseId }) {
       await supabase.from("tip").delete().eq("player_id", player.id).eq("phase_id", pId).in("match_id", idsToDelete);
       await supabase.from("user_points_detail").delete().eq("player_id", player.id).in("match_id", idsToDelete);
     } 
+
+    if (numericPhaseId === 5) {
+      await supabase.from("tip_final_matrix").delete().eq("player_id", player.id);
+    }
+
     fetchTips();
   }
 
@@ -372,7 +377,9 @@ function TippsPage({ player, phaseId }) {
                 ❌ Abgabe gesperrt: {
                   completionStatus.groupRanksMissing ? "Es fehlen noch Stichwahlen in den Tabellen!" :
                   completionStatus.thirdsRanksMissing ? "Kritischer Gleichstand bei Gruppendritten (Platz 8 vs 9) benötigt Stichwahl!" :
-                  `${completionStatus.currentM}/${completionStatus.targetM} Spiele & ${completionStatus.currentP}/${completionStatus.targetP} Prognosen`
+                  numericPhaseId === 5 
+                    ? `${completionStatus.currentM}/${completionStatus.targetM} Spiele getippt`
+                    : `${completionStatus.currentM}/${completionStatus.targetM} Spiele & ${completionStatus.currentP}/${completionStatus.targetP} Prognosen`
                 }
               </div>
             ) : (

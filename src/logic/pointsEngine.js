@@ -33,6 +33,37 @@ export const POINTS_CONFIG = {
   }
 };
 
+// ==========================================
+// CENTRAL ORCHESTRATION FUNCTION
+// ==========================================
+/**
+ * Haupt-Schnittstelle für die Punkte-Engine.
+ * Wird aufgerufen, sobald ein Spielergebnis eingetragen/aktualisiert wird.
+ */
+export async function processAllPointsForMatch(currentMatch, phaseId, allMatches = []) {
+  if (!currentMatch || currentMatch.goals_a_real === null || currentMatch.goals_b_real === null) {
+    console.log(`[ENGINE] Match ${currentMatch?.id || '?'} hat noch kein Ergebnis. Abbruch.`);
+    return;
+  }
+
+  console.log(`[ENGINE] 🚀 Starte komplette Punkteberechnung für Match #${currentMatch.id} (${currentMatch.team_a} vs. ${currentMatch.team_b})`);
+
+  try {
+    // 1. Berechne Standard Match-Tipps der User
+    await processStandardMatchTips(currentMatch, phaseId);
+
+    // 2. Berechne Turnier-Pfad & Prognose-Punkte (Gruppe oder KO)
+    await processPrognosisPoints(allMatches, currentMatch);
+
+    // 3. Berechne die Bonusfragen (da diese global ausgewertet werden können)
+    await processBonusQuestionsPoints();
+
+    console.log(`[ENGINE] 🎉 Alle Punkte für Match #${currentMatch.id} erfolgreich verarbeitet!`);
+  } catch (error) {
+    console.error(`[ENGINE] ❌ Fehler während der Gesamtberechnung für Match #${currentMatch.id}:`, error);
+  }
+}
+
 // --- HELPER: BERECHNET DIE PUNKTE FÜR DIE BONUSFRAGEN (+/- 1 REGEL) ---
 export const calculateBonusPoints = (qId, userAnswer, realAnswer, basePoints = 20) => {
   if (!realAnswer || realAnswer === "EMPTY" || userAnswer === undefined || userAnswer === null || userAnswer === "") {
@@ -186,7 +217,6 @@ export async function processStandardMatchTips(currentMatch, phaseId) {
 // FUNKTION FÜR DIE BONUS-FRAGEN
 // ==========================================
 export async function processBonusQuestionsPoints() {
-  // 1. Alle abgegebenen Tipps aus der Tabelle laden
   const { data: bonusTips, error: fetchErr } = await supabase
     .from("user_bonus_tips")
     .select("*");
@@ -196,16 +226,13 @@ export async function processBonusQuestionsPoints() {
   const pointsEntries = [];
   const basePoints = POINTS_CONFIG.BONUS_QUESTION_BASE || 10;
 
-  // 2. Jeden Tipp einzeln auswerten
   bonusTips.forEach(tip => {
     const realAnswer = tip.real_answer;
     
-    // Überspringen, falls noch kein Ergebnis feststeht
     if (!realAnswer || realAnswer === "EMPTY") return;
 
     const pointsTotal = calculateBonusPoints(tip.question, tip.user_answer, realAnswer, basePoints);
 
-    // Schönere Labels für das Breakdown-Infofeld erzeugen
     let questionLabel = tip.question;
     if (tip.question === "total_goals") questionLabel = "Meisten Gesamttore Spiel";
     if (tip.question === "extra_times") questionLabel = "Anzahl Verlängerungen";
@@ -215,13 +242,12 @@ export async function processBonusQuestionsPoints() {
     if (tip.question === "most_conceded_goals") questionLabel = "Meiste Gegentore Gruppenphase";
     if (tip.question === "pot4_furthest") questionLabel = "Topf 4 Team am weitesten";
 
-    // Mappen in das einheitliche user_points_detail Schema
     pointsEntries.push({
-      player_id: tip.user_id, // user_id aus user_bonus_tips mappt auf player_id
+      player_id: tip.user_id, 
       match_id: null,
-      match_order: 999, // Fiktive hohe Order für das Ende der Liste
+      match_order: 999, 
       category: "BONUS",
-      matchday: 99, // Fiktiver Spieltag für Bonusfragen
+      matchday: 99, 
       points_total: pointsTotal,
       phase_id: 1, 
       group_name: "BONUS",
@@ -239,13 +265,11 @@ export async function processBonusQuestionsPoints() {
     });
   });
 
-  // 3. Alte Bonuspunkte-Einträge bereinigen
   await supabase
     .from("user_points_detail")
     .delete()
     .eq("category", "BONUS");
 
-  // 4. Neue Berechnungen speichern
   if (pointsEntries.length > 0) {
     const { error: insertErr } = await supabase.from("user_points_detail").insert(pointsEntries);
     if (insertErr) console.error("[BONUS-ENGINE] Fehler beim Speichern:", insertErr.message);
@@ -253,7 +277,9 @@ export async function processBonusQuestionsPoints() {
   }
 }
 
-// --- BERECHNUNG DER TURNIER-PFADE / PROGNOSEN ---
+// ==========================================
+// BERECHNUNG DER TURNIER-PFADE / PROGNOSEN
+// ==========================================
 export async function processPrognosisPoints(allMatches, currentMatch, forcedGroupName = null) {
   if (currentMatch.goals_a_real === null || currentMatch.goals_b_real === null) return;
 
@@ -295,11 +321,15 @@ export async function processPrognosisPoints(allMatches, currentMatch, forcedGro
     const groupMatches = allMatches.filter(m => m.group_name === activeGroupName);
     const allMatchesPlayed = groupMatches.every(m => m.goals_a_real !== null && m.goals_b_real !== null);
     const isGroupReallyFinished = realGroup.is_finished || allMatchesPlayed;
-         
+          
     if (isGroupReallyFinished) {
       const lastMatchOfThisGroup = groupMatches.reduce((max, m) => m.match_order > max.match_order ? m : max, groupMatches[0]);
 
+      // STUFE 1: Sobald die Gruppe vorbei ist, werden die 7 mathematisch fixen Fälle berechnet.
+      // Gespeichert wird dies unter der echten Abschluss-MatchID dieser spezifischen Gruppe (z.B. Match 6).
       if (mId === lastMatchOfThisGroup?.id) {
+        console.log(`[ENGINE] Gruppe ${activeGroupName} beendet. Berechne die 7 fixen Fälle für das Abschlussspiel...`);
+        
         const { data: userGroupProgs, error: uProgErr } = await supabase
           .from("user_prognosis_group")
           .select("*")
@@ -311,12 +341,14 @@ export async function processPrognosisPoints(allMatches, currentMatch, forcedGro
           const validProgs = userGroupProgs.filter(p => p.rank_1 && p.rank_2 && p.rank_3 && p.rank_4);
 
           validProgs.forEach(prog => {
+            // Fall 1-4: Exakte Tabellenplätze (1, 2, 3, 4) richtig erraten
             ['rank_1', 'rank_2', 'rank_3', 'rank_4'].forEach((rankKey) => {
               if (prog[rankKey] === realGroup[rankKey] && realGroup[rankKey] !== null) {
                 pointsEntries.push(createPointEntry(prog.player_id, 'GROUP_RANK', POINTS_CONFIG.PROG_TABLE_POS, prog[rankKey], 1, activeGroupName, mId, mOrder, currentMatch.matchday));
               }
             });
 
+            // Fall 5-6: Ränge 1 und 2 kommen sicher weiter (unabhängig von Dritten)
             const userQualifiers = [...(prog.reached_ko || [])];
             const realQualifiers = [...(realGroup.reached_ko || [])];
 
@@ -326,6 +358,7 @@ export async function processPrognosisPoints(allMatches, currentMatch, forcedGro
               }
             });
 
+            // Fall 7: Rang 4 scheidet sicher aus der Vorrunde aus
             const userDroppedOut = [...(prog.dropped_out || [])];
             if (realGroup.rank_4 && userDroppedOut.includes(realGroup.rank_4)) {
               pointsEntries.push(createPointEntry(prog.player_id, 'PROGNOSIS_PATH', POINTS_CONFIG.PROG_OUT_VORRUNDE, realGroup.rank_4, 1, activeGroupName, mId, mOrder, currentMatch.matchday, { original: POINTS_CONFIG.PROG_OUT_VORRUNDE }));
@@ -335,7 +368,11 @@ export async function processPrognosisPoints(allMatches, currentMatch, forcedGro
       }
     }
 
+    // STUFE 2: Das Schicksal der Gruppendritten (Fall 8).
+    // Wird ERST und NUR gezündet, wenn das 72. Spiel der gesamten Gruppenphase ausgewertet wird.
     if (mOrder === 72) {
+      console.log("[ENGINE] 🏁 Spiel 72 erreicht! Werte jetzt das Schicksal aller Gruppendritten aus...");
+      
       const { data: allRealGroups, error: allGroupsErr } = await supabase.from("real_group_state").select("*");
       const { data: allUserProgs, error: allUserProgsErr } = await supabase.from("user_prognosis_group").select("*");
 
@@ -349,12 +386,14 @@ export async function processPrognosisPoints(allMatches, currentMatch, forcedGro
           const relevantProgs = allUserProgs.filter(p => p.group_name === rg.group_name);
 
           relevantProgs.forEach(prog => {
+            // Fall 8a: Der Gruppendritte gehört zu den 8 besten Dritten und kommt weiter
             if (realThirdsReachedKO.includes(groupThirdTeam)) {
               const userExpectedQualifiers = [...(prog.reached_ko || []), ...(prog.reached_ko_best_thirds || [])];
               if (userExpectedQualifiers.includes(groupThirdTeam)) {
                 pointsEntries.push(createPointEntry(prog.player_id, 'PROGNOSIS_PATH', POINTS_CONFIG.PROG_REACH_16, groupThirdTeam, 1, rg.group_name, mId, mOrder, currentMatch.matchday, { original: POINTS_CONFIG.PROG_REACH_16 }));
               }
             }
+            // Fall 8b: Der Gruppendritte fliegt als einer der 4 schlechtesten Dritten raus
             if (realDroppedOut.includes(groupThirdTeam) && groupThirdTeam !== rg.rank_4) {
               if (prog.dropped_out?.includes(groupThirdTeam)) {
                 pointsEntries.push(createPointEntry(prog.player_id, 'PROGNOSIS_PATH', POINTS_CONFIG.PROG_OUT_VORRUNDE, groupThirdTeam, 1, rg.group_name, mId, mOrder, currentMatch.matchday, { original: POINTS_CONFIG.PROG_OUT_VORRUNDE }));
@@ -433,6 +472,7 @@ export async function processPrognosisPoints(allMatches, currentMatch, forcedGro
     }
   }
 
+  // --- DUPILKATSFILTER & SPEICHERUNG ---
   const uniquePointsMap = {};
   pointsEntries.forEach(entry => {
     const uniqueKey = `${entry.player_id}_${entry.category}_${entry.reference_team}_${entry.phase_id}`;
