@@ -7,6 +7,7 @@ import { FlagIcon } from "../Utils/teamUtils";
 import { RetroJersey } from "../Utils/RetroJersey";
 
 // --- COMPONENTS ---
+import CountdownTimer from "./CountdownTimer"; 
 import TippsPage from "./TippsPage";
 import AdminResultsPage from "./AdminResultsPage"; 
 import AdminControlCenter from "./AdminControlCenter";
@@ -16,12 +17,21 @@ import SupportFeedbackPage from "./SupportFeedbackPage";
 import ProfilePage from "./Profile"; 
 import StatisticsPage from "./StatisticsPage";
 
+// --- ZENTRALE DEADLINE KONFIGURATION ---
+const PHASE_DEADLINES = {
+  bonus: "2026-06-11T12:00:00",
+  1: "2026-06-11T12:00:00",
+  2: "2026-06-28T20:00:00",
+  3: "2026-07-04T18:00:00",
+  4: "2026-07-09T20:00:00",
+  5: "2026-07-14T20:00:00",
+};
+
 const Dashboard = ({ player, onLogout }) => {
   const [localPlayer, setLocalPlayer] = useState(player);
   const [activePhase, setActivePhase] = useState("ranking");
   const [systemConfig, setSystemConfig] = useState(null);
   
-  // Speichert alle Matches und Tipps für die Berechnungen rechts
   const [allMatches, setAllMatches] = useState([]);
   const [allCommunityTips, setAllCommunityTips] = useState([]);
   
@@ -29,6 +39,7 @@ const Dashboard = ({ player, onLogout }) => {
   const [allPhases, setAllPhases] = useState([]); 
   const [loading, setLoading] = useState(true);
   const [isPhase1Locked, setIsPhase1Locked] = useState(false);
+  const [isMyPhase1Submitted, setIsMyPhase1Submitted] = useState(false); // NEU: Prüft eigene Abgabe
   
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
@@ -45,12 +56,12 @@ const Dashboard = ({ player, onLogout }) => {
   async function fetchDashboardData() {
     if (allPhases.length === 0) setLoading(true);
     try {
-      // --- 1. BASIS-DATEN LADEN (ohne die riesigen Tabellen) ---
-      const [configRes, phasesRes, matchesRes, playersRes] = await Promise.all([
+      const [configRes, phasesRes, matchesRes, playersRes, mySubmissionRes] = await Promise.all([
         supabase.from("system_config").select("*").single(),
         supabase.from("tip_phase").select("*").order("id", { ascending: true }),
         supabase.from("match").select("*").order("match_order", { ascending: true }),
-        supabase.from("player").select("id, name, display_name, name_color, jersey_number, supported_country, is_admin")
+        supabase.from("player").select("id, name, display_name, name_color, jersey_number, supported_country, is_admin"),
+        supabase.from("player_phase_submission").select("*").eq("player_id", player.id).eq("phase_id", 1).maybeSingle() // NEU: Eigene Abgabe laden
       ]);
 
       const phasesData = phasesRes.data || [];
@@ -60,42 +71,39 @@ const Dashboard = ({ player, onLogout }) => {
       setAllPhases(phasesData);
       setSystemConfig(configRes.data);
       setAllMatches(matchesData);
+      setIsMyPhase1Submitted(mySubmissionRes.data?.is_submitted || false); // NEU: State setzen
 
       const phase1 = phasesData.find(p => Number(p.id) === 1);
       setIsPhase1Locked(phase1 ? (phase1.is_submitted || configRes.data?.tips_locked_global) : false);
 
-      // --- 2. ERMITTLUNG DER AKTUELLEN SPIELTAGE ---
       const finishedMatches = matchesData.filter(m => 
         m.goals_a_real !== null && m.goals_b_real !== null && 
         m.goals_a_real !== undefined && m.goals_b_real !== undefined &&
         m.goals_a_real !== '' && m.goals_b_real !== ''
       );
       const lastEvaluatedMatchday = finishedMatches.length > 0 
-        ? Math.max(...finishedMatches.map(m => m.matchday || 1)) 
+        ? Math.max(...finishedMatches.map(m => m.matchday || m.spieltag || 1)) 
         : 0;
 
-      const currentLastSpieltag = finishedMatches.length > 0 ? lastEvaluatedMatchday : 1;
+      const currentLastSpieltag = finishedMatches.length > 0 ? lastEvaluatedMatchday : 0; // Geändert auf 0, wenn kein Spiel fertig ist
       const currentNextSpieltag = finishedMatches.length > 0 ? currentLastSpieltag + 1 : 1;
 
-      // Filtere die Matches heraus, die rechts auf dem Dashboard angezeigt werden
       const visibleMatches = matchesData.filter(m => 
         (m.matchday || m.spieltag || 1) === currentLastSpieltag || 
         (m.matchday || m.spieltag || 1) === currentNextSpieltag
       );
       const visibleMatchIds = visibleMatches.map(m => m.id);
 
-      // --- 3. GEZIELTES LADEN DER COMMUNITY-TIPPS (Performance & Limit-Safe) ---
       let tipsData = [];
       if (visibleMatchIds.length > 0) {
         const tipsRes = await supabase
           .from("tip")
           .select("*")
-          .in("match_id", visibleMatchIds); // Holt nur Tipps für die angezeigten Spiele
+          .in("match_id", visibleMatchIds);
         tipsData = tipsRes.data || [];
       }
       setAllCommunityTips(tipsData);
 
-      // --- 4. PUNKTE-DETAILS PAGINIERT LADEN (Bricht das 1000er-Limit für die Rangliste) ---
       let allPoints = [];
       let from = 0;
       let to = 999;
@@ -118,12 +126,10 @@ const Dashboard = ({ player, onLogout }) => {
         }
       }
 
-      // --- 5. BERECHNUNG AKTUELLER VS. VORHERIGER RANGLISTE FÜR TREND-PFEILE ---
       const lastMatchdayMatchIds = finishedMatches
         .filter(m => (m.matchday || m.spieltag || 1) === lastEvaluatedMatchday)
         .map(m => m.id);
 
-      // Aktuellen Punktestand berechnen
       const calculatedRanking = players.map(p => {
         const userTotal = allPoints
           .filter(entry => Number(entry.player_id) === Number(p.id))
@@ -132,7 +138,6 @@ const Dashboard = ({ player, onLogout }) => {
       });
       calculatedRanking.sort((a, b) => b.points - a.points);
 
-      // Punktestand VOR dem letzten Spieltag berechnen
       const previousRanking = players.map(p => {
         const prevTotal = allPoints
           .filter(entry => Number(entry.player_id) === Number(p.id) && !lastMatchdayMatchIds.includes(entry.match_id))
@@ -141,7 +146,6 @@ const Dashboard = ({ player, onLogout }) => {
       });
       previousRanking.sort((a, b) => b.points - a.points);
 
-      // Trends einspeisen
       const rankingWithTrends = calculatedRanking.map((player, currentIndex) => {
         const currentRank = currentIndex + 1;
         const prevIndex = previousRanking.findIndex(r => r.id === player.id);
@@ -163,14 +167,9 @@ const Dashboard = ({ player, onLogout }) => {
     } catch (error) {
       console.error("Fehler beim Laden der Dashboard-Daten:", error);
     } finally {
-      loading && setLoading(false);
+      setLoading(false);
     }
   }
-
-  const getFirstActivePhaseId = () => {
-    const firstActive = allPhases.find(p => p.is_active);
-    return firstActive ? firstActive.id : "ranking";
-  };
 
   const handleProfileSave = async (updatedData) => {
     try {
@@ -194,7 +193,6 @@ const Dashboard = ({ player, onLogout }) => {
 
   const displayName = localPlayer.display_name && localPlayer.display_name !== "EMPTY" ? localPlayer.display_name : localPlayer.name;
 
-  // --- HILFSFUNKTION FÜR DAS RENDERING DER SPIEL-TENDENZEN RECHTS ---
   const renderMatchTendencyCard = (m) => {
     const matchTips = allCommunityTips.filter(t => Number(t.match_id) === Number(m.id));
     const totalTips = matchTips.length;
@@ -216,7 +214,26 @@ const Dashboard = ({ player, onLogout }) => {
         padding: "16px", marginBottom: "14px", boxShadow: "0 1px 3px rgba(0,0,0,0.05)"
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-          <span style={{ fontSize: "0.85rem", color: "#64748b", fontWeight: "600" }}>Gruppe {m.group_name}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span style={{ 
+              backgroundColor: '#e2e8f0',
+              color: '#475569', 
+              fontWeight: '700', 
+              fontSize: '0.65rem',
+              padding: '1px 2px',
+              borderRadius: '4px',
+              minWidth: '15px', 
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              lineHeight: '1'
+            }}>
+              {m.match_no || m.match_order}
+            </span>
+            <span style={{ fontSize: "0.85rem", color: "#64748b", fontWeight: "600" }}>Gruppe {m.group_name}</span>
+          </div>
+
           {hasRealResult && (
             <span style={{ backgroundColor: "#10b981", color: "white", padding: "2px 8px", borderRadius: "6px", fontSize: "0.8rem", fontWeight: "700", marginLeft: "auto" }}>
               Endergebnis: {m.goals_a_real} : {m.goals_b_real}
@@ -232,8 +249,13 @@ const Dashboard = ({ player, onLogout }) => {
           <span>{m.team_b}</span>
         </div>
 
-        <div style={{ display: "flex", height: "18px", width: "100%", borderRadius: "6px", overflow: "hidden", backgroundColor: "#f1f5f9", marginBottom: "12px" }}>
-          {totalTips === 0 ? (
+        {/* 🔒 NEU: Balken-Sperre, falls Phase 1 vom User noch nicht final abgegeben wurde */}
+        <div style={{ display: "flex", height: "20px", width: "100%", borderRadius: "6px", overflow: "hidden", backgroundColor: "#f1f5f9", marginBottom: "12px" }}>
+          {!isMyPhase1Submitted ? (
+            <div style={{ width: "100%", backgroundColor: "#e2e8f0", color: "#64748b", fontSize: "0.75rem", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "600", fontStyle: "italic", gap: "4px" }}>
+              🔒 Tendenzen der Tipper erst sichtbar nach deiner Abgabe von Phase 1
+            </div>
+          ) : totalTips === 0 ? (
             <div style={{ width: "100%", backgroundColor: "#cbd5e1", color: "#475569", fontSize: "0.75rem", display: "flex", alignItems: "center", justifyContent: "center" }}>
               Keine Tipps abgegeben
             </div>
@@ -250,11 +272,13 @@ const Dashboard = ({ player, onLogout }) => {
           <div style={{ fontWeight: "600", color: "#334155" }}>
             Dein Tipp: <span style={{ color: "#2563eb", fontWeight: "800" }}>{myTip ? `${myTip.goals_a} : ${myTip.goals_b}` : "—"}</span>
           </div>
-          <div style={{ display: "flex", gap: "12px", fontSize: "0.75rem", color: "#64748b", fontWeight: "600" }}>
-            <span style={{ display: "flex", alignItems: "center", gap: "4px" }}><span style={{ display: "inline-block", width: "8px", height: "8px", backgroundColor: "#22c55e", borderRadius: "50%" }}></span>{m.team_a} gewinnt</span>
-            <span style={{ display: "flex", alignItems: "center", gap: "4px" }}><span style={{ display: "inline-block", width: "8px", height: "8px", backgroundColor: "#94a3b8", borderRadius: "50%" }}></span>Unentschieden</span>
-            <span style={{ display: "flex", alignItems: "center", gap: "4px" }}><span style={{ display: "inline-block", width: "8px", height: "8px", backgroundColor: "#3b82f6", borderRadius: "50%" }}></span>{m.team_b} gewinnt</span>
-          </div>
+          {isMyPhase1Submitted && (
+            <div style={{ display: "flex", gap: "12px", fontSize: "0.75rem", color: "#64748b", fontWeight: "600" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: "4px" }}><span style={{ display: "inline-block", width: "8px", height: "8px", backgroundColor: "#22c55e", borderRadius: "50%" }}></span>{m.team_a} gewinnt</span>
+              <span style={{ display: "flex", alignItems: "center", gap: "4px" }}><span style={{ display: "inline-block", width: "8px", height: "8px", backgroundColor: "#94a3b8", borderRadius: "50%" }}></span>Unentschieden</span>
+              <span style={{ display: "flex", alignItems: "center", gap: "4px" }}><span style={{ display: "inline-block", width: "8px", height: "8px", backgroundColor: "#3b82f6", borderRadius: "50%" }}></span>{m.team_b} gewinnt</span>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -262,14 +286,14 @@ const Dashboard = ({ player, onLogout }) => {
 
   const finishedMatchesList = allMatches.filter(m => 
     m.goals_a_real !== null && m.goals_b_real !== null &&
-    m.goals_a_real !== undefined && m.goals_b_real !== undefined
+    m.goals_a_real !== undefined && m.goals_b_real !== undefined &&
+    m.goals_a_real !== '' && m.goals_b_real !== ''
   );
 
-  const currentLastSpieltag = finishedMatchesList.length > 0 
-    ? Math.max(...finishedMatchesList.map(m => m.matchday || 1)) 
-    : 1;
-
-  const currentNextSpieltag = finishedMatchesList.length > 0 ? currentLastSpieltag + 1 : 1;
+  // Relevante Spieltage ermitteln
+  const hasFinishedMatches = finishedMatchesList.length > 0;
+  const currentLastSpieltag = hasFinishedMatches ? Math.max(...finishedMatchesList.map(m => m.matchday || m.spieltag || 1)) : 0;
+  const currentNextSpieltag = hasFinishedMatches ? currentLastSpieltag + 1 : 1;
 
   return (
     <div style={{ display: "flex", height: "100vh", width: "100vw", overflow: "hidden", margin: 0, padding: 0, backgroundColor: "#f8fafc" }}>
@@ -303,7 +327,7 @@ const Dashboard = ({ player, onLogout }) => {
           backgroundColor: "#ffffff",
           alignItems: isSidebarCollapsed ? "center" : "stretch"
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "14px", width: "100%", justifyContent: isSidebarCollapsed ? "center" : "flex-start" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: isSidebarCollapsed ? "center" : "flex-start", gap: "14px", width: "100%" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <RetroJersey color={localPlayer.name_color} number={localPlayer.jersey_number} size={isSidebarCollapsed ? 40 : 48} />
             </div>
@@ -367,20 +391,40 @@ const Dashboard = ({ player, onLogout }) => {
               <button 
                 key={p.id} 
                 onClick={() => setActivePhase(p.id)} 
-                style={{ ...getPhaseButtonStyle(activePhase === p.id, systemConfig?.current_phase_id === p.id), justifyContent: isSidebarCollapsed ? "center" : "flex-start" }}
+                style={{ 
+                  ...getPhaseButtonStyle(activePhase === p.id, systemConfig?.current_phase_id === p.id), 
+                  justifyContent: isSidebarCollapsed ? "center" : "flex-start",
+                  display: "flex",
+                  alignItems: "center"
+                }}
                 title={`Phase ${p.id}`}
               >
-                {isSidebarCollapsed ? `P${p.id}` : `Phase ${p.id} ${p.is_submitted ? " 🔒" : ""}`}
+                {isSidebarCollapsed ? `P${p.id}` : (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
+                    <span>Phase {p.id} {p.is_submitted ? " 🔒" : ""}</span>
+                    <CountdownTimer targetDate={PHASE_DEADLINES[p.id]} />
+                  </div>
+                )}
               </button>
             ))}
           </div>
 
           <button 
             onClick={() => setActivePhase("bonus_questions")} 
-            style={{ ...getPhaseButtonStyle(activePhase === "bonus_questions", systemConfig?.current_phase_id === 1), justifyContent: isSidebarCollapsed ? "center" : "flex-start" }}
+            style={{ 
+              ...getPhaseButtonStyle(activePhase === "bonus_questions", systemConfig?.current_phase_id === 1), 
+              justifyContent: isSidebarCollapsed ? "center" : "flex-start",
+              display: "flex",
+              alignItems: "center"
+            }}
             title="Bonusfragen"
           >
-            {isSidebarCollapsed ? "🏆" : `🏆 Bonusfragen ${isPhase1Locked ? " 🔒" : ""}`}
+            {isSidebarCollapsed ? "🏆" : (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
+                <span>🏆 Bonusfragen {isPhase1Locked ? " 🔒" : ""}</span>
+                <CountdownTimer targetDate={PHASE_DEADLINES.bonus} />
+              </div>
+            )}
           </button>
 
           {localPlayer.is_admin && (
@@ -484,16 +528,15 @@ const Dashboard = ({ player, onLogout }) => {
 
             <div style={{ display: "flex", flexDirection: "column", gap: "30px" }}>
               
-              <section>
-                <h3 style={{ ...DASHBOARD_STYLES.contentTitle, color: "#0f172a", marginBottom: "12px" }}>
-                  ⚽ Letzter Spieltag (Spieltag {currentLastSpieltag})
-                </h3>
-                {allMatches.filter(m => (m.matchday || m.spieltag || 1) === currentLastSpieltag).length === 0 ? (
-                  <div style={{ color: "#64748b", fontStyle: "italic" }}>Noch keine Spiele ausgewertet.</div>
-                ) : (
-                  allMatches.filter(m => (m.matchday || m.spieltag || 1) === currentLastSpieltag).map(renderMatchTendencyCard)
-                )}
-              </section>
+              {/* 🔄 GEÄNDERT: Zeigt "Letzter Spieltag" nur an, wenn bereits ausgewertete Spiele vorhanden sind */}
+              {hasFinishedMatches && (
+                <section>
+                  <h3 style={{ ...DASHBOARD_STYLES.contentTitle, color: "#0f172a", marginBottom: "12px" }}>
+                    ⚽ Letzter Spieltag (Spieltag {currentLastSpieltag})
+                  </h3>
+                  {allMatches.filter(m => (m.matchday || m.spieltag || 1) === currentLastSpieltag).map(renderMatchTendencyCard)}
+                </section>
+              )}
 
               <section>
                 <h3 style={{ ...DASHBOARD_STYLES.contentTitle, color: "#0f172a", marginBottom: "12px" }}>

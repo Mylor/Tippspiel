@@ -7,6 +7,12 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* 🛡️ NEU: Verhindert, dass die App auf dem Handy kollabiert */
+#root {
+  min-width: 1200px; /* Erzwingt die Desktop-Breite */
+  overflow-x: auto;  /* Falls ein Handy gar nicht zoomen will, kann man scrollen */
+}
+
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;

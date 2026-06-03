@@ -25,7 +25,6 @@ const KOBracket = ({
 
   /**
    * TeamRow: Interne Hilfskomponente für die Darstellung eines Teams innerhalb eines Spiels.
-   * Nutzt die BRACKET_STYLES für Gewinner-Hervorhebung und Layout.
    */
   const TeamRow = ({ teamName, side, isFirst, winningSide }) => {
     const isWinner = winningSide === side;
@@ -84,7 +83,7 @@ const KOBracket = ({
                   let teamA = getTeamFromPrevious(actualRoundIdx, matchIndex, "A") || "?";
                   let teamB = getTeamFromPrevious(actualRoundIdx, matchIndex, "B") || "?";
 
-                  // LOGIK: Wer hat das Spiel gewonnen? (Berücksichtigt Tore und manuelle Siegerwahl)
+                  // LOGIK: Wer hat das Spiel gewonnen?
                   const winningSide = (() => {
                     if (!tip) return null;
                     const gA = (tip.goals_a !== null && tip.goals_a !== undefined && tip.goals_a !== "") ? Number(tip.goals_a) : null;
@@ -98,17 +97,43 @@ const KOBracket = ({
 
                   return (
                     <div key={m.id} style={{ position: "absolute", top: `${currentTop}px`, left: `${visibleIdx * 300}px`, height: `${BOX_HEIGHT}px` }}>
-                      <div style={BRACKET_STYLES.matchLabel}>
-                        {actualRoundIdx === 4 ? (matchIndex === 1 ? "Spiel um Platz 3" : "Finale") : `${safeRoundNames[round]} ${matchIndex + 1}`}
+                      
+                      {/* OPTIMIERTES LABEL MIT SPIELNUMMER-BADGE */}
+                      <div style={{ 
+                        ...BRACKET_STYLES.matchLabel, 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '6px' 
+                      }}>
+                        {/* Kleine, kompakte Spielnummer-Plakette */}
+                        <span style={{
+                          backgroundColor: '#e2e8f0',
+                          color: '#475569',
+                          fontWeight: '700',
+                          padding: '1px 5px',
+                          borderRadius: '4px',
+                          fontSize: '0.65rem',
+                          lineHeight: '1',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}>
+                          {m.match_no || m.match_order}
+                        </span>
+                        
+                        {/* Runden-Bezeichner */}
+                        <span>
+                          {actualRoundIdx === 4 ? (matchIndex === 1 ? "Spiel um Platz 3" : "Finale") : `${safeRoundNames[round]} ${matchIndex + 1}`}
+                        </span>
                       </div>
 
+                      {/* SPIEL-BOX */}
                       <div style={BRACKET_STYLES.matchBox}>
                         <TeamRow teamName={teamA} side="1" isFirst winningSide={winningSide} />
                         <TeamRow teamName={teamB} side="2" isFirst={false} winningSide={winningSide} />
                         
                         <div style={BRACKET_STYLES.tipContainer}>
                           {isAdmin ? (
-                            // Admin-Ansicht: Immer volle Eingabe möglich
                             <TipInput 
                               teamA={teamA} teamB={teamB} isKO onSave={(a,b,w) => saveTip(m.id,a,b,w)} 
                               initialGoalsA={tip?.goals_a} initialGoalsB={tip?.goals_b} initialWinner={tip?.winner} 
@@ -117,7 +142,6 @@ const KOBracket = ({
                           ) : (
                             !phase?.is_submitted ? (
                               tip ? (
-                                // User-Ansicht: Gespeicherte Tipps anzeigen
                                 <div style={BRACKET_STYLES.savedTipDisplay}>
                                   {(tip.goals_a !== null && tip.goals_a !== undefined && tip.goals_a !== "") 
                                     ? `${tip.goals_a} : ${tip.goals_b}` 
@@ -129,7 +153,6 @@ const KOBracket = ({
                                   )}
                                 </div>
                               ) : (
-                                // User-Ansicht: Eingabefelder anzeigen
                                 (teamA !== "?" && teamB !== "?") ? (
                                   <TipInput 
                                     teamA={teamA} teamB={teamB} isKO onSave={(a,b,w) => saveTip(m.id,a,b,w)} 
@@ -140,7 +163,6 @@ const KOBracket = ({
                                 )
                               )
                             ) : (
-                              // Finale Ansicht nach Abgabe
                               <div style={BRACKET_STYLES.finalResult}>
                                 {tip?.goals_a !== null && tip?.goals_a !== undefined && tip?.goals_a !== "" 
                                   ? `${tip.goals_a} : ${tip.goals_b}` 
@@ -151,18 +173,16 @@ const KOBracket = ({
                         </div>
                       </div>
 
-                      {/* DYNAMISCHE LINIEN: Zeichnet die Pfade zur nächsten Runde */}
+                      {/* DYNAMISCHE LINIEN */}
                       {actualRoundIdx < 4 && (
                         <>
-                          {/* Horizontale Linie direkt aus der Box */}
                           <div style={BRACKET_STYLES.lineHorizontal} />
-                          {/* Vertikale Linie zur Mitte des nächsten Spiels */}
                           <div style={{ 
                             ...BRACKET_STYLES.lineVertical,
+                            top: "82px" * 1 === 82 ? "82px" : "82px", // Behält die originale dynamische Top-Berechnung bei
                             top: matchIndex % 2 === 0 ? "82px" : `calc(82px - ${Math.abs(nextTop - currentTop)}px)`, 
                             height: `${Math.abs(nextTop - currentTop)}px`, 
                           }} />
-                          {/* Verbindungsstück zum nächsten Spiel (nur bei jedem zweiten Match nötig) */}
                           {matchIndex % 2 === 0 && (
                             <div style={{ ...BRACKET_STYLES.lineHorizontal, top: `${(nextTop - currentTop) + 82}px`, right: "-60px" }} />
                           )}

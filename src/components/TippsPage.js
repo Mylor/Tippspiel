@@ -24,7 +24,8 @@ function TippsPage({ player, phaseId }) {
 
   // --- STATES ---
   const [matches, setMatches] = useState([]);         
-  const [tips, setTips] = useState({});              
+  const [tips, setTips] = useState({});               
+  const [dbTips, setDbTips] = useState({});           
   const [manualRanks, setManualRanks] = useState({}); 
   const [phase, setPhase] = useState(null);          
   const [systemConfig, setSystemConfig] = useState(null); 
@@ -97,68 +98,86 @@ function TippsPage({ player, phaseId }) {
     phaseId 
   }), [groupResults, bestThirds, tips, phaseId]);
 
-  // Exakte Kontrolle aller Gruppenspiele (A- und B-Tore müssen existieren)
-  const allGroupMatchesFinished = useMemo(() => {
+  // NEU: Strikte Kontrolle, ob ALLE Gruppen vollständig in der DB gesichert wurden
+  const allGroupsSaved = useMemo(() => {
     const groupMatches = matches.filter(m => m.stage === "group");
     if (groupMatches.length === 0) return false;
     return groupMatches.every(m => {
-      const t = tips[m.id];
-      return t && 
-        t.goals_a !== null && t.goals_a !== undefined && t.goals_a !== "" &&
-        t.goals_b !== null && t.goals_b !== undefined && t.goals_b !== "";
+      const dbTip = dbTips[m.id];
+      return dbTip && 
+             dbTip.goals_a !== null && dbTip.goals_a !== undefined && dbTip.goals_a !== "" &&
+             dbTip.goals_b !== null && dbTip.goals_b !== undefined && dbTip.goals_b !== "";
     });
-  }, [matches, tips]);
+  }, [matches, dbTips]);
 
-  // VALIDIERUNG INKLUSIVE STICHWAHLEN
+  // STATUS-VALIDIERUNG PRO EINZELNER GRUPPE
+  const groupStatus = useMemo(() => {
+    const statusMap = {};
+    Object.keys(grouped).forEach(name => {
+      const groupMatches = grouped[name] || [];
+      
+      const allEntered = groupMatches.length === 6 && groupMatches.every(m => {
+        const t = tips[m.id];
+        return t && 
+               t.goals_a !== null && t.goals_a !== undefined && t.goals_a !== "" &&
+               t.goals_b !== null && t.goals_b !== undefined && t.goals_b !== "";
+      });
+
+      let ranksMissing = false;
+      const teamsInGroup = allGroupsArray.find(g => g.id === name)?.teams || [];
+      
+      if (allEntered) {
+        const tied = teamsInGroup.filter((teamA, i) => 
+          teamsInGroup.some((teamB, j) => 
+            i !== j && teamA.points === teamB.points && teamA.diff === teamB.diff && teamA.goals === teamB.goals
+          )
+        );
+        if (tied.length > 0) {
+          const ranks = tied.map(t => manualRanks[t.team]);
+          if (ranks.some(r => r === null || r === undefined || r === "")) ranksMissing = true;
+          const clean = ranks.filter(r => r !== null && r !== undefined && r !== "");
+          if (new Set(clean).size !== clean.length) ranksMissing = true;
+        }
+      }
+
+      statusMap[name] = {
+        isReady: allEntered && !ranksMissing,
+        allEntered,
+        ranksMissing
+      };
+    });
+    return statusMap;
+  }, [grouped, tips, allGroupsArray, manualRanks]);
+
+  // VALIDIERUNG FÜR FINALE ABGABE
   const completionStatus = useMemo(() => {
     const targets = { 1: { m: 72, p: 32 }, 2: { m: 16, p: 16 }, 3: { m: 8, p: 8 }, 4: { m: 4, p: 4 }, 5: { m: 10, p: 0 } };
     const currentTarget = targets[numericPhaseId] || { m: 0, p: 0 };
 
-    let matchesCount = Object.keys(tips).filter(key => {
+    let matchesCount = Object.keys(dbTips).filter(key => {
       if (typeof key === 'string' && key.startsWith('OPT')) return false;
-      return tips[key]?.goals_a !== null && tips[key]?.goals_b !== null;
+      return dbTips[key]?.goals_a !== null && dbTips[key]?.goals_b !== null;
     }).length;
 
     if (numericPhaseId === 5) {
-      const matrixCount = Object.keys(tips).filter(key => typeof key === 'string' && key.startsWith('OPT') && tips[key]?.goals_a !== null && tips[key]?.goals_b !== null).length;
+      const matrixCount = Object.keys(dbTips).filter(key => typeof key === 'string' && key.startsWith('OPT') && dbTips[key]?.goals_a !== null && dbTips[key]?.goals_b !== null).length;
       matchesCount += matrixCount;
     }
 
-    const prognosisCount = Object.keys(tips).filter(key => {
+    const prognosisCount = Object.keys(dbTips).filter(key => {
       if (typeof key === 'string' && key.startsWith('OPT')) return false;
-      return tips[key]?.winner !== null && tips[key]?.goals_a === null && tips[key]?.goals_b === null;
+      return dbTips[key]?.winner !== null && dbTips[key]?.goals_a === null && dbTips[key]?.goals_b === null;
     }).length;
 
-    // Kontrollprüfungen für Stichwahlen
     let groupRanksMissing = false;
     if (numericPhaseId === 1) {
       Object.keys(grouped).forEach(name => {
-        const groupMatches = grouped[name];
-        const teamsInGroup = allGroupsArray.find(g => g.id === name)?.teams || [];
-        const isFinished = groupMatches.length > 0 && groupMatches.every(m => {
-          const t = tips[m.id];
-          return t && t.goals_a !== null && t.goals_a !== undefined && t.goals_a !== "" &&
-                     t.goals_b !== null && t.goals_b !== undefined && t.goals_b !== "";
-        });
-        if (isFinished) {
-          const tied = teamsInGroup.filter((teamA, i) => 
-            teamsInGroup.some((teamB, j) => 
-              i !== j && teamA.points === teamB.points && teamA.diff === teamB.diff && teamA.goals === teamB.goals
-            )
-          );
-          if (tied.length > 0) {
-            const ranks = tied.map(t => manualRanks[t.team]);
-            if (ranks.some(r => r === null || r === undefined || r === "")) groupRanksMissing = true;
-            const clean = ranks.filter(r => r !== null && r !== undefined && r !== "");
-            if (new Set(clean).size !== clean.length) groupRanksMissing = true; 
-          }
-        }
+        if (groupStatus[name]?.ranksMissing) groupRanksMissing = true;
       });
     }
 
-    // Grenzbereich-Stichwahl bei Gruppendritten (Platz 8 vs Platz 9)
     let thirdsRanksMissing = false;
-    if (numericPhaseId === 1 && allGroupMatchesFinished && bestThirds.length >= 9) {
+    if (numericPhaseId === 1 && allGroupsSaved && bestThirds.length >= 9) {
       const targetA = bestThirds[7];
       const targetB = bestThirds[8];
       if (targetA.points === targetB.points && targetA.diff === targetB.diff && targetA.goals === targetB.goals) {
@@ -182,7 +201,7 @@ function TippsPage({ player, phaseId }) {
       groupRanksMissing,
       thirdsRanksMissing
     };
-  }, [tips, numericPhaseId, grouped, allGroupsArray, manualRanks, bestThirds, allGroupMatchesFinished]);
+  }, [dbTips, numericPhaseId, grouped, manualRanks, bestThirds, allGroupsSaved, groupStatus]);
 
   const isReadOnly = phase?.is_submitted || systemConfig?.tips_locked_global || isPlayerSubmitted;
   const showContent = !systemConfig?.tips_locked_global;
@@ -207,7 +226,9 @@ function TippsPage({ player, phaseId }) {
     const map = {};
     normalData?.forEach((t) => (map[t.match_id] = t));
     matrixData?.forEach((t) => (map[t.matrix_key] = t));
-    setTips(map);
+    
+    setTips({ ...map });
+    setDbTips({ ...map });
 
     const rankMap = {};
     rankData?.forEach((r) => (rankMap[r.team_name] = r.manual_rank));
@@ -255,6 +276,12 @@ function TippsPage({ player, phaseId }) {
       else if (gB > gA) calculatedWinner = "2";
     }
 
+    const currentMatch = matches.find(m => m.id === matchId);
+    if (currentMatch?.stage === "group") {
+      setTips(prev => ({ ...prev, [matchId]: { goals_a: gA, goals_b: gB, winner: calculatedWinner } }));
+      return;
+    }
+
     const isSpecial = typeof matchId === 'string' && matchId.startsWith('OPT');
     const isInputEmpty = (goalsA === "" || goalsA === null) && (goalsB === "" || goalsB === null) && (!winner);
 
@@ -265,11 +292,8 @@ function TippsPage({ player, phaseId }) {
         await supabase.from("tip").delete().eq("player_id", player.id).eq("match_id", matchId).eq("phase_id", phaseId);
       }
         
-      setTips(prev => {
-        const next = { ...prev };
-        delete next[matchId];
-        return next;
-      });
+      setTips(prev => { const next = { ...prev }; delete next[matchId]; return next; });
+      setDbTips(prev => { const next = { ...prev }; delete next[matchId]; return next; });
       return; 
     }
 
@@ -284,13 +308,83 @@ function TippsPage({ player, phaseId }) {
     }
 
     setTips(prev => ({ ...prev, [matchId]: { goals_a: gA, goals_b: gB, winner: calculatedWinner } }));
+    setDbTips(prev => ({ ...prev, [matchId]: { goals_a: gA, goals_b: gB, winner: calculatedWinner } }));
+  }
+
+  async function saveGroup(groupName) {
+    if (isReadOnly) return;
+
+    const groupMatches = matches.filter(m => m.group_name === groupName);
+    const tipsToUpsert = [];
+    
+    groupMatches.forEach(m => {
+      const t = tips[m.id];
+      if (t) {
+        const gA = (t.goals_a !== null && t.goals_a !== "") ? Number(t.goals_a) : null;
+        const gB = (t.goals_b !== null && t.goals_b !== "") ? Number(t.goals_b) : null;
+        let calculatedWinner = t.winner;
+        if (gA !== null && gB !== null) {
+          if (gA > gB) calculatedWinner = "1";
+          else if (gB > gA) calculatedWinner = "2";
+        }
+        tipsToUpsert.push({
+          player_id: player.id,
+          match_id: m.id,
+          phase_id: phaseId,
+          goals_a: gA,
+          goals_b: gB,
+          winner: calculatedWinner
+        });
+      }
+    });
+
+    const teamsInGroup = [...new Set(groupMatches.flatMap(m => [m.team_a, m.team_b]))];
+    const ranksToUpsert = [];
+    teamsInGroup.forEach(teamName => {
+      const r = manualRanks[teamName];
+      if (r !== undefined && r !== null && r !== "") {
+        ranksToUpsert.push({
+          player_id: player.id,
+          phase_id: phaseId,
+          team_name: teamName,
+          manual_rank: Number(r)
+        });
+      }
+    });
+
+    if (tipsToUpsert.length > 0) {
+      await supabase.from("tip").upsert(tipsToUpsert, { onConflict: 'player_id, match_id, phase_id' });
+    }
+    if (ranksToUpsert.length > 0) {
+      await supabase.from("tip_manual_rank").upsert(ranksToUpsert, { onConflict: 'player_id, phase_id, team_name' });
+    }
+
+    await fetchTips();
+
+    if (numericPhaseId === 1 && allGroupsArray.length > 0) {
+      const top8Thirds = bestThirds.slice(0, 8).map(t => t.team);
+      await updateGroupPrognosisDB(player.id, allGroupsArray, top8Thirds);
+    }
+    if (Object.keys(koByRound).length > 0) {
+      await updateKOPrognosisDB(player.id, phaseId, koByRound, tips, tournamentContext);
+    }
   }
 
   async function saveManualRank(teamName, rank) {
     if (isReadOnly) return; 
     const val = rank === "" ? null : Number(rank);
-    await supabase.from("tip_manual_rank").upsert([{ player_id: player.id, phase_id: phaseId, team_name: teamName, manual_rank: val }], { onConflict: 'player_id, phase_id, team_name' });
+
     setManualRanks(prev => ({ ...prev, [teamName]: val }));
+
+    const teamGroup = matches.find(m => m.team_a === teamName || m.team_b === teamName)?.group_name;
+    const groupMatches = matches.filter(m => m.group_name === teamGroup);
+    const isGroupAlreadySaved = groupMatches.length > 0 && groupMatches.every(m => dbTips[m.id] !== undefined);
+
+    if (teamGroup && !isGroupAlreadySaved) {
+      return;
+    }
+
+    await supabase.from("tip_manual_rank").upsert([{ player_id: player.id, phase_id: phaseId, team_name: teamName, manual_rank: val }], { onConflict: 'player_id, phase_id, team_name' });
   }
 
   async function resetGroup(groupName) {
@@ -303,8 +397,19 @@ function TippsPage({ player, phaseId }) {
     await supabase.from("tip_manual_rank").delete().eq("player_id", player.id).eq("phase_id", phaseId).in("team_name", teamsInGroup);
     await supabase.from("user_points_detail").delete().eq("player_id", player.id).in("match_id", matchIds);
     
+    setTips(prev => {
+      const next = { ...prev };
+      matchIds.forEach(id => delete next[id]);
+      return next;
+    });
+    setManualRanks(prev => {
+      const next = { ...prev };
+      teamsInGroup.forEach(t => delete next[t]);
+      return next;
+    });
+
     await deleteKORound(1, phaseId);
-    fetchTips(); 
+    await fetchTips(); 
   }
 
   async function deleteKORound(stageOrder, pId) {
@@ -320,53 +425,33 @@ function TippsPage({ player, phaseId }) {
       await supabase.from("tip_final_matrix").delete().eq("player_id", player.id);
     }
 
-    fetchTips();
+    await fetchTips();
   }
 
   async function resetOption(optId) {
-  if (isReadOnly) return; 
-
-  // 1. Lokalen State sofort säubern, um Race Conditions mit dem useEffect zu verhindern
-  setTips(prev => {
-    const next = { ...prev };
-    delete next[`OPT${optId}_F`];
-    delete next[`OPT${optId}_S3`];
-    return next;
-  });
-
-  // 2. In der Datenbank löschen
-  await supabase.from("tip_final_matrix").delete().eq("player_id", player.id).in("matrix_key", [`OPT${optId}_F`, `OPT${optId}_S3`]);
-  
-  // 3. Erst danach neu laden zur finalen Synchronisation
-  fetchTips();
-}
+    if (isReadOnly) return; 
+    setTips(prev => { const next = { ...prev }; delete next[`OPT${optId}_F`]; delete next[`OPT${optId}_S3`]; return next; });
+    await supabase.from("tip_final_matrix").delete().eq("player_id", player.id).in("matrix_key", [`OPT${optId}_F`, `OPT${optId}_S3`]);
+    await fetchTips();
+  }
 
   const currentSpacing = phase ? (PHASE_SPACING[phase.id] || 70) : 70;
   const startIdxOfPhase = phase ? (phase.id <= 2 ? 0 : phase.id - 2) : 0;
   const topOffset = getTopPosition(startIdxOfPhase, 0, treeHeight, currentSpacing);
 
-  // --- DB UPDATER FOR PROGNOSIS ---
   useEffect(() => {
     if (!player?.id || matches.length === 0 || isReadOnly) return;
-
     const handler = setTimeout(async () => {
-      if (numericPhaseId === 1 && allGroupsArray.length > 0) {
-        const top8Thirds = bestThirds.slice(0, 8).map(t => t.team);
-        await updateGroupPrognosisDB(player.id, allGroupsArray, top8Thirds);
-      }
       if (Object.keys(koByRound).length > 0) {
         await updateKOPrognosisDB(player.id, phaseId, koByRound, tips, tournamentContext);
       }
     }, 500);
-
     return () => clearTimeout(handler);
-  }, [tips, phaseId, player?.id, allGroupsArray, bestThirds, koByRound, numericPhaseId, tournamentContext, isReadOnly]);
+  }, [tips, phaseId, player?.id, koByRound, tournamentContext, isReadOnly]);
 
   if (!player || !phaseId) return <div style={{ padding: "20px" }}>Lade Benutzerdaten...</div>;
 
   return (
-    /* HIER GEÄNDERT: overflowX: "auto" entfernt, damit die Dashboard-Scrollbar greift. 
-       width auf "max-content" gestellt, um die feste Box-Begrenzung aufzuheben. */
     <div style={{ padding: "20px", width: "max-content", minWidth: "100%", position: "relative" }}>
       
       {showContent && (
@@ -391,7 +476,7 @@ function TippsPage({ player, phaseId }) {
                   completionStatus.thirdsRanksMissing ? "Kritischer Gleichstand bei Gruppendritten (Platz 8 vs 9) benötigt Stichwahl!" :
                   numericPhaseId === 5 
                     ? `${completionStatus.currentM}/${completionStatus.targetM} Spiele getippt`
-                    : `${completionStatus.currentM}/${completionStatus.targetM} Spiele & ${completionStatus.currentP}/${completionStatus.targetP} Prognosen`
+                    : `${completionStatus.currentM}/${completionStatus.targetM} Spiele gesichert & ${completionStatus.currentP}/${completionStatus.targetP} Prognosen`
                 }
               </div>
             ) : (
@@ -407,8 +492,6 @@ function TippsPage({ player, phaseId }) {
       )}
 
       {showContent ? (
-        /* HIER GEÄNDERT: width: "max-content" und paddingRight ergänzt, um das Abschneiden 
-           und Rausbrechen der Komponenten am rechten Bildschirmrand komplett zu verhindern. */
         <div style={{ display: "flex", flexDirection: "row", gap: "40px", alignItems: "flex-start", width: "max-content", minWidth: "100%", paddingRight: "40px" }}>
           {numericPhaseId === 1 && (
             <div style={{ flexShrink: 0, width: "fit-content" }}>
@@ -416,27 +499,44 @@ function TippsPage({ player, phaseId }) {
                 <div style={{ padding: "10px", marginBottom: "20px" }}>
                   <h3 style={{ color: "#0f172a", fontSize: "1.3rem", fontWeight: "700", margin: "0 0 16px 0" }}>Gruppenphase</h3>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "30px", marginBottom: "40px", maxWidth: "1100px" }}>
-                    {Object.keys(grouped).sort().map(name => (
-                      <div key={name} style={{ position: 'relative' }}>
-                        <GroupTable 
-                          groupName={name} matches={grouped[name]} tips={tips} 
-                          tableData={allGroupsArray.find(g => g.id === name)?.teams || []} 
-                          onSaveTip={saveTip} isSubmitted={isReadOnly} manualRanks={manualRanks} 
-                          onSaveManualRank={saveManualRank} onDeleteTips={isReadOnly ? null : resetGroup} 
-                        />
-                      </div>
-                    ))}
+                    {Object.keys(grouped).sort().map(name => {
+                      const groupMatches = grouped[name] || [];
+                      // KORREKTUR: Ermittelt separat den lokalen Save-Status für diese eine Gruppe aus der Datenbank
+                      const isGroupSaved = groupMatches.length === 6 && groupMatches.every(m => dbTips[m.id] !== undefined);
+
+                      return (
+                        <div key={name} style={{ position: 'relative' }}>
+                          <GroupTable 
+                            groupName={name} 
+                            matches={groupMatches} 
+                            tips={tips} 
+                            dbTips={dbTips}
+                            tableData={allGroupsArray.find(g => g.id === name)?.teams || []} 
+                            onSaveTip={saveTip} 
+                            isSubmitted={isReadOnly}
+                            isGroupSaved={isGroupSaved} 
+                            manualRanks={manualRanks} 
+                            onSaveManualRank={saveManualRank} 
+                            onDeleteTips={isReadOnly ? null : resetGroup} 
+                            groupStatus={groupStatus[name]} 
+                            onSaveGroup={saveGroup}          
+                          />
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
-                {allGroupMatchesFinished && (
+                {/* Die Tabelle der besten Dritten baut sich live auf */}
+                {allGroupsSaved && (
                   <div style={{ padding: "10px" }}>
+                    <h3 style={{ color: "#0f172a", fontSize: "1.3rem", fontWeight: "700", margin: "0 0 16px 0" }}>Vergleich der Gruppendritten</h3>
                     <BestThirdsTable 
                       teams={bestThirds} 
                       manualRanks={manualRanks} 
                       onSaveManualRank={saveManualRank} 
                       isSubmitted={isReadOnly} 
-                      isGroupPhaseComplete={allGroupMatchesFinished} 
+                      isGroupPhaseComplete={allGroupsSaved} 
                     />
                   </div>
                 )}
@@ -444,15 +544,14 @@ function TippsPage({ player, phaseId }) {
             </div>
           )}
 
-          {/* HIER GEÄNDERT: flexShrink: 0 und width: "fit-content" gesetzt, damit der KO-Baum 
-              seine echte Breite behält und nicht künstlich zusammengestaucht wird. */}
           <div style={{ flexShrink: 0, width: "fit-content" }}>
             <div style={{ padding: "10px" }}>
               <h3 style={{ marginLeft: "20px", color: "#0f172a", fontSize: "1.3rem", fontWeight: "700" }}>KO-Phase</h3>
               
-              {numericPhaseId === 1 && !allGroupMatchesFinished && (
+              {/* KORREKTUR: Hinweistext prüft nun, ob alle Gruppen gespeichert wurden */}
+              {numericPhaseId === 1 && !allGroupsSaved && (
                 <div style={{ marginLeft: "20px", marginBottom: "15px", color: "#eab308", fontWeight: "600", fontSize: "14px", backgroundColor: "#fef08a", padding: "8px 12px", borderRadius: "8px", border: "1px solid #fde047", maxWidth: "500px" }}>
-                  ⚠️ Der KO-Baum wird erst freigeschaltet, wenn alle 72 Gruppenspiele vollständig getippt wurden.
+                  ⚠️ Der KO-Baum wird erst freigeschaltet, wenn alle Gruppen vollständig gespeichert wurden.
                 </div>
               )}
 
@@ -462,8 +561,9 @@ function TippsPage({ player, phaseId }) {
                   phase={{ ...phase, is_submitted: isReadOnly }} 
                   getTopPosition={(rIdx, mIdx) => getTopPosition(rIdx, mIdx, treeHeight, currentSpacing) - topOffset} 
                   
+                  // KORREKTUR: Teams werden erst berechnet, wenn alle Gruppen in der DB festgeschrieben sind
                   getTeamFromPrevious={(rIdx, mIdx, side) => {
-                    if (numericPhaseId === 1 && !allGroupMatchesFinished) return null;
+                    if (numericPhaseId === 1 && !allGroupsSaved) return null;
                     if (numericPhaseId === 1 && rIdx === 0) {
                       const matchPair = KO_STRUCTURE.round16[mIdx];
                       const slot = side === "A" ? matchPair[0] : matchPair[1];
@@ -472,11 +572,11 @@ function TippsPage({ player, phaseId }) {
                     return getTeamFromPrevious(rIdx, mIdx, side, koByRound, tips, tournamentContext);
                   }}
                   resolveSlot={(slot) => {
-                    if (numericPhaseId === 1 && !allGroupMatchesFinished) return null;
+                    if (numericPhaseId === 1 && !allGroupsSaved) return null;
                     return resolveSlot(slot, tournamentContext);
                   }} 
                   
-                  saveTip={isReadOnly || (numericPhaseId === 1 && !allGroupMatchesFinished) ? null : saveTip} 
+                  saveTip={isReadOnly || (numericPhaseId === 1 && !allGroupsSaved) ? null : saveTip} 
                   deleteKORound={isReadOnly ? null : deleteKORound} 
                   KO_STRUCTURE={KO_STRUCTURE} isAdmin={false} 
                 />

@@ -1,41 +1,62 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import TipInput from './TipInput'; 
 import { FlagIcon } from '../Utils/teamUtils';
 import { GROUP_TABLE_STYLES } from '../Utils/uiConstants';
 
 const GroupTable = ({ 
   groupName, 
-  matches, 
-  tips, 
-  tableData, 
-  isSubmitted, 
+  matches = [], 
+  tips = {}, 
+  dbTips = {}, 
+  tableData = [], 
+  isSubmitted,     // Globale Phasensperre (Read-Only)
+  isGroupSaved,    // NEU: Lokaler Speicherstatus dieser Gruppe
   onDeleteTips, 
   onSaveTip,
   manualRanks = {},
   onSaveManualRank,
+  onSaveGroup,
   isAdmin = false 
 }) => {
 
-  // KORREKTUR: Prüft, ob für alle Spiele dieser Gruppe bereits User-Tipps abgegeben wurden
-  const isGroupFinished = matches.length > 0 && matches.every(m => {
-    const tip = tips[m.id];
-    return tip && 
-           tip.goals_a !== null && tip.goals_a !== undefined && tip.goals_a !== "" &&
-           tip.goals_b !== null && tip.goals_b !== undefined && tip.goals_b !== "";
-  });
+  const sortedMatches = useMemo(() => {
+    return [...matches].sort((a, b) => (a.match_order || 0) - (b.match_order || 0));
+  }, [matches]);
 
-  // ERMITTLUNG VON GLEICHSTAND:
-  // Sucht nach Teams, die exakt dieselben Punkte, Differenz und Tore haben
-  const tiedTeams = tableData.filter((teamA, i) => 
-    tableData.some((teamB, j) => 
-      i !== j && 
-      teamA.points === teamB.points && 
-      teamA.diff === teamB.diff && 
-      teamA.goals === teamB.goals
-    )
-  );
+  // Prüfen, ob alle Spiele der Gruppe ausgefüllt sind (für den Aktivierungszustand des Speicherbuttons)
+  const isGroupFinished = useMemo(() => {
+    return matches.length > 0 && matches.every(m => {
+      const tip = tips[m.id];
+      return tip && 
+             tip.goals_a !== null && tip.goals_a !== undefined && tip.goals_a !== "" &&
+             tip.goals_b !== null && tip.goals_b !== undefined && tip.goals_b !== "";
+    });
+  }, [matches, tips]);
+
+  // Ermittlung von Gleichstand für die Stichwahl
+  const tiedTeams = useMemo(() => {
+    return tableData.filter((teamA, i) => 
+      tableData.some((teamB, j) => 
+        i !== j && 
+        teamA.points === teamB.points && 
+        teamA.diff === teamB.diff && 
+        teamA.goals === teamB.goals
+      )
+    );
+  }, [tableData]);
 
   const hasTie = tiedTeams.length > 0;
+
+  // Prüfen, ob bei Gleichstand alle Stichwahlen ausgefüllt sind
+  const isManualRankComplete = useMemo(() => {
+    if (!hasTie) return true;
+    return tiedTeams.every(team => {
+      const rank = manualRanks[team.team];
+      return rank !== undefined && rank !== null && rank !== "";
+    });
+  }, [hasTie, tiedTeams, manualRanks]);
+
+  const canSaveGroup = isGroupFinished && isManualRankComplete;
 
   return (
     <div style={GROUP_TABLE_STYLES.mainContainer}>
@@ -43,37 +64,60 @@ const GroupTable = ({
       <div style={GROUP_TABLE_STYLES.matchSection}>
         <div style={GROUP_TABLE_STYLES.headerContainer}>
           <h3 style={GROUP_TABLE_STYLES.groupTitle}>Gruppe {groupName}</h3>
-          {!isSubmitted && !isAdmin && (
-            <button onClick={() => onDeleteTips(groupName)} style={GROUP_TABLE_STYLES.resetButton}>
-              Reset
-            </button>
-          )}
+          
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            {/* Speichern-Button verschwindet, sobald die Gruppe gesichert ist */}
+            {!isGroupSaved && !isSubmitted && !isAdmin && (
+              <button 
+                disabled={!canSaveGroup}
+                onClick={() => onSaveGroup(groupName)}
+                style={{
+                  ...saveGroupBtnStyle,
+                  backgroundColor: canSaveGroup ? "#22c55e" : "#bbf7d0", 
+                  cursor: canSaveGroup ? "pointer" : "not-allowed"
+                }}
+              >
+                Gruppe Speichern
+              </button>
+            )}
+            
+            {/* KORREKTUR: Reset-Button bleibt sichtbar, solange die Phase nicht final abgegeben wurde */}
+            {!isSubmitted && !isAdmin && (
+              <button onClick={() => onDeleteTips(groupName)} style={GROUP_TABLE_STYLES.resetButton}>
+                Reset
+              </button>
+            )}
+          </div>
         </div>
 
-        {[...matches]
-          .sort((a, b) => (a.match_order || 0) - (b.match_order || 0))
-          .map((m) => {
-            const tip = tips[m.id];
-            return (
-              <div key={m.id} style={GROUP_TABLE_STYLES.matchCard}>                  
-                <div style={GROUP_TABLE_STYLES.matchFlex}>
+        {sortedMatches.map((m) => {
+          const tip = tips[m.id];
+          return (
+            <div key={m.id} style={GROUP_TABLE_STYLES.matchCard}>                  
+              <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+                <span style={matchNoStyle}>
+                  {m.match_no || m.match_order}
+                </span>
+
+                <div style={{ ...GROUP_TABLE_STYLES.matchFlex, flex: 1 }}>
                   <div style={GROUP_TABLE_STYLES.teamAContainer}>
                     <span style={GROUP_TABLE_STYLES.teamName}>{m.team_a}</span>
                     <FlagIcon teamName={m.team_a} />
                   </div>
                   
                   <div style={GROUP_TABLE_STYLES.scoreDisplayContainer}>
-                    {(isAdmin || !tip) ? (
-                      <div style={GROUP_TABLE_STYLES.scoreDisplayContainer}>
-                        <TipInput 
-                          isKO={false} 
-                          initialGoalsA={tip?.goals_a} 
-                          initialGoalsB={tip?.goals_b}
-                          onSave={(a, b, w) => onSaveTip(m.id, a, b, w)} 
-                        />
-                      </div>
+                    {/* Boxen frieren ein, wenn die Phase beendet ODER die Gruppe gespeichert wurde */}
+                    {(!isSubmitted && !isGroupSaved || isAdmin) ? (
+                      <TipInput 
+                        isKO={false} 
+                        initialGoalsA={tip?.goals_a} 
+                        initialGoalsB={tip?.goals_b}
+                        onSave={(a, b, w) => onSaveTip(m.id, a, b, w)} 
+                      />
                     ) : (
-                      <div style={GROUP_TABLE_STYLES.savedScore}>{tip.goals_a} : {tip.goals_b}</div>
+                      <div style={GROUP_TABLE_STYLES.savedScore}>
+                        {tip && tip.goals_a !== "" ? `${tip.goals_a} : ${tip.goals_b}` : "- : -"}
+                      </div>
                     )}  
                   </div>
 
@@ -83,8 +127,9 @@ const GroupTable = ({
                   </div>
                 </div>
               </div>
-            );
-          })}
+            </div>
+          );
+        })}
       </div>
 
       {/* RECHTE SEITE: LIVE-TABELLE */}
@@ -127,7 +172,7 @@ const GroupTable = ({
           </tbody>
         </table>
 
-        {/* HIER GEÄNDERT: Box erscheint nur, wenn Gruppe komplett ausgefüllt ist */}
+        {/* Box für die Stichwahl bei absolutem Gleichstand */}
         {isGroupFinished && hasTie && (
           <div style={GROUP_TABLE_STYLES.swContainer}>
             <div style={GROUP_TABLE_STYLES.swHeader}>⚠️ Stichwahl nötig</div>
@@ -149,7 +194,7 @@ const GroupTable = ({
                         onSaveManualRank(row.team, e.target.value);
                       }
                     }}
-                    disabled={isSubmitted}
+                    disabled={isSubmitted || isGroupSaved}
                     style={GROUP_TABLE_STYLES.manualRankInput}
                     placeholder="-"
                   />
@@ -162,5 +207,8 @@ const GroupTable = ({
     </div>
   );
 };
+
+const saveGroupBtnStyle = { color: '#ffffff', fontWeight: '600', fontSize: '0.75rem', padding: '4px 8px', borderRadius: '4px', border: 'none', transition: 'all 0.2s ease-in-out' };
+const matchNoStyle = { backgroundColor: '#e2e8f0', color: '#475569', fontWeight: '700', fontSize: '0.65rem', padding: '1px 2px', borderRadius: '4px', minWidth: '15px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginRight: '10px', lineHeight: '1' };
 
 export default GroupTable;

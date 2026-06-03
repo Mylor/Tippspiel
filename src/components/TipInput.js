@@ -2,38 +2,29 @@ import React, { useState, useEffect } from 'react';
 
 /**
  * TipInput: Das Eingabefeld für Tore und (bei KO-Spielen) den Sieger.
- * Speichert automatisch bei jeder Änderung (Auto-Save).
+ * Speichert automatisch bei jeder lokalen Änderung.
  */
 const TipInput = ({ 
   teamA, teamB, onSave, isKO, 
   initialGoalsA, initialGoalsB, initialWinner, onlyWinner 
 }) => {
   
-  // --- STATE ---
   const [goalsA, setGoalsA] = useState(initialGoalsA ?? "");
   const [goalsB, setGoalsB] = useState(initialGoalsB ?? "");
   const [winner, setWinner] = useState(initialWinner ?? "");
 
-  // Synchronisation bei externen Änderungen (z.B. durch Reset)
   useEffect(() => {
     setGoalsA(initialGoalsA ?? "");
     setGoalsB(initialGoalsB ?? "");
     setWinner(initialWinner ?? "");
   }, [initialGoalsA, initialGoalsB, initialWinner]);
 
-  // --- LOGIK: VALIDIERUNG & SPEICHERN ---
-
-  /**
-   * Prüft, ob die Eingaben vollständig sind und triggert onSave.
-   */
   const checkAndSave = (a, b, w) => {
-    // FALL A: Nur Sieger-Tipp (Prognose-Modus)
     if (onlyWinner) {
       if (w) onSave(null, null, w);
       return;
     }
 
-    // FALL B: Tore-Eingabe
     if (a !== "" && b !== "") {
       const gA = Number(a);
       const gB = Number(b);
@@ -44,18 +35,13 @@ const TipInput = ({
       } else if (gB > gA) {
         finalWinner = "2";
       } else {
-        // --- REMIS LOGIK ---
         if (isKO) {
-          // Im KO-System: Wenn Tore gleich, MUSS ein Sieger (w) da sein.
-          // Wenn noch kein Sieger gewählt wurde, stoppen wir hier kurz,
-          // damit nicht "null" als Sieger in den KO-Baum wandert.
           if (!w || w === "") {
             setWinner(""); 
-            return; // Warte auf Dropdown-Auswahl
+            return; 
           }
           finalWinner = w;
         } else {
-          // In der Gruppenphase: Remis ist einfach null/leer.
           finalWinner = null;
         }
       }
@@ -65,47 +51,33 @@ const TipInput = ({
     }
   };
 
-  /**
-   * Behandelt Änderungen an den Tore-Inputs (Zahlenfelder)
-   */
   const handleInputChange = (val, field) => {
-  let newA = field === 'A' ? val : goalsA;
-  let newB = field === 'B' ? val : goalsB;
+    let newA = field === 'A' ? val : goalsA;
+    let newB = field === 'B' ? val : goalsB;
 
-  // 1. Lokalen State aktualisieren
-  if (field === 'A') setGoalsA(val);
-  else setGoalsB(val);
+    if (field === 'A') setGoalsA(val);
+    else setGoalsB(val);
 
-  // 2. Automatische Sieger-Logik
-  let updatedWinner = winner; // Standardmäßig den alten behalten
+    let updatedWinner = winner; 
+    const numA = parseInt(newA);
+    const numB = parseInt(newB);
 
-  const numA = parseInt(newA);
-  const numB = parseInt(newB);
-
-  if (!isNaN(numA) && !isNaN(numB)) {
-    if (numA > numB) {
-      updatedWinner = 1; // Team A gewinnt regulär
-    } else if (numB > numA) {
-      updatedWinner = 2; // Team B gewinnt regulär
-    } else {
-      /* WICHTIG: Wenn es 1:1 steht, muss der User den Sieger neu wählen.
-         Wir setzen ihn hier auf null, damit das alte "Winner"-Flag 
-         aus der Datenbank verschwindet, falls vorher z.B. 2:1 getippt war.
-      */
-      updatedWinner = null; 
+    if (!isNaN(numA) && !isNaN(numB)) {
+      if (numA > numB) {
+        updatedWinner = "1"; // GEÄNDERT: Als String für Konsistenz
+      } else if (numB > numA) {
+        updatedWinner = "2"; // GEÄNDERT: Als String für Konsistenz
+      } else {
+        updatedWinner = null; 
+      }
     }
-  }
 
-  // 3. Den neuen Sieger-Status im State und in der DB speichern
-  setWinner(updatedWinner);
-  checkAndSave(newA, newB, updatedWinner);
-};
+    setWinner(updatedWinner);
+    checkAndSave(newA, newB, updatedWinner);
+  };
 
-  // --- RENDER ---
   return (
     <div style={containerStyle}>
-      
-      {/* ⚽ TORE-INPUTS (Ausgeblendet, wenn nur der Sieger getippt werden soll) */}
       {!onlyWinner && (
         <div style={inputGroupStyle}>
           <input
@@ -126,7 +98,6 @@ const TipInput = ({
         </div>
       )}
 
-      {/* 🏆 SIEGER-DROPDOWN (Erscheint bei onlyWinner ODER bei Unentschieden in der KO-Phase) */}
       {(onlyWinner || (isKO && goalsA !== "" && goalsB !== "" && Number(goalsA) === Number(goalsB))) && (
         <select 
           value={winner} 
@@ -146,27 +117,10 @@ const TipInput = ({
   );
 };
 
-// --- STYLES (Inline-CSS) ---
 const containerStyle = { display: "flex", flexDirection: "column", gap: "5px" };
 const inputGroupStyle = { display: "flex", alignItems: "center", justifyContent: "center", gap: "5px" };
 const dividerStyle = { fontWeight: "bold" };
-
-const numberInputStyle = { 
-  width: "35px", 
-  textAlign: "center", 
-  borderRadius: "4px", 
-  border: "1px solid #cbd5e0",
-  fontSize: "0.9rem",
-  padding: "2px"
-};
-
-const selectStyle = { 
-  fontSize: "10px", 
-  width: "100%",
-  padding: "2px",
-  borderRadius: "4px",
-  border: "1px solid #cbd5e0",
-  backgroundColor: "#fff"
-};
+const numberInputStyle = { width: "35px", textAlign: "center", borderRadius: "4px", border: "1px solid #cbd5e0", fontSize: "0.9rem", padding: "2px" };
+const selectStyle = { fontSize: "10px", width: "100%", padding: "2px", borderRadius: "4px", border: "1px solid #cbd5e0", backgroundColor: "#fff" };
 
 export default TipInput;

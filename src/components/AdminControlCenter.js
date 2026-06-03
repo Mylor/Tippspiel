@@ -43,8 +43,9 @@ const AdminControlCenter = ({ onUpdate }) => {
   const [progress, setProgress] = useState([]);
   const [phases, setPhases] = useState([]);
   const [config, setConfig] = useState(null);
+  const [allPlayers, setAllPlayers] = useState([]); 
   const [playerProfiles, setPlayerProfiles] = useState({});
-  const [submissions, setSubmissions] = useState([]); // NEU: State für finale User-Abgaben
+  const [submissions, setSubmissions] = useState([]); 
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -54,25 +55,25 @@ const AdminControlCenter = ({ onUpdate }) => {
   const fetchAdminData = async () => {
     setLoading(true);
     try {
-      // Erweiterte Abfrage: Wir holen nun auch die player_phase_submission Tabelle dazu
       const [progRes, phaseRes, configRes, playerRes, submissionRes] = await Promise.all([
         supabase.from("admin_tip_progress").select("*").order("player_id"),
         supabase.from("tip_phase").select("*").order("id"),
         supabase.from("system_config").select("*").single(),
-        supabase.from("player").select("id, display_name, name_color, jersey_number, supported_country"), // id ergänzt für ID-Mapping
-        supabase.from("player_phase_submission").select("*") // NEU: Abgabestatus abholen
+        supabase.from("player").select("id, display_name, name_color, jersey_number, supported_country").order("display_name"), 
+        supabase.from("player_phase_submission").select("*")
       ]);
 
       setProgress(progRes.data || []);
       setPhases(phaseRes.data || []);
       setConfig(configRes.data);
-      setSubmissions(submissionRes.data || []); // NEU: Zuweisung in den State
+      setSubmissions(submissionRes.data || []);
+      setAllPlayers(playerRes.data || []); 
 
       const profileMap = {};
       if (playerRes.data) {
         playerRes.data.forEach(p => {
           profileMap[p.display_name] = {
-            id: p.id, // NEU: ID mitspeichern, um Abgaben fehlerfrei zu matchen
+            id: p.id, 
             color: p.name_color || "#000000",
             jerseyNumber: p.jersey_number || "",
             supportedCountry: p.supported_country 
@@ -148,7 +149,6 @@ const AdminControlCenter = ({ onUpdate }) => {
     );
   }
 
-  const players = [...new Set(progress.map(item => item.display_name))];
   const isGlobalLocked = config?.tips_locked_global || false;
 
   return (
@@ -233,11 +233,17 @@ const AdminControlCenter = ({ onUpdate }) => {
               </tr>
             </thead>
             <tbody>
-              {players.map((playerName, index) => {
-                const profile = playerProfiles[playerName] || { id: null, color: "#000000", jerseyNumber: "", supportedCountry: "" };
+              {allPlayers.map((player, index) => {
+                const playerName = player.display_name;
+                const profile = playerProfiles[playerName] || { 
+                  id: player.id, 
+                  color: player.name_color || "#000000", 
+                  jerseyNumber: player.jersey_number || "", 
+                  supportedCountry: player.supported_country 
+                };
 
                 return (
-                  <tr key={playerName} style={{ 
+                  <tr key={player.id} style={{ 
                     backgroundColor: index % 2 === 0 ? "white" : "#f8fafc",
                     transition: "background-color 0.15s ease",
                   }}>
@@ -264,14 +270,16 @@ const AdminControlCenter = ({ onUpdate }) => {
                     {phases.map(p => {
                       const stats = progress.find(item => item.display_name === playerName && item.phase_id === p.id);
                       
-                      // 1. Berechnung: Hat der User alle Felder mathematisch ausgefüllt?
-                      const isDone = stats?.tipped_count === stats?.total_matches && stats?.prognosis_count === stats?.total_prognosis;
+                      // ERWEITERT: Prüft nun alle drei Bedingungen (Spiele, K.o.-Prognosen UND Bonusfragen)
+                      const isDone = stats && stats.total_matches > 0 && 
+                                     stats.tipped_count === stats.total_matches && 
+                                     (stats.total_prognosis === 0 || stats.prognosis_count === stats.total_prognosis) &&
+                                     (stats.total_bonus === 0 || stats.bonus_count === stats.total_bonus);
                       
-                      // 2. Berechnung: Liegt ein finaler Abgabe-Eintrag für diesen Spieler & diese Phase vor?
-                      const currentPlayerId = stats?.player_id || profile.id;
+                      const currentPlayerId = profile.id;
                       const isSubmitted = submissions.some(sub => sub.player_id === currentPlayerId && sub.phase_id === p.id && sub.is_submitted === true);
 
-                      // DYNAMISCHES STYLING JE NACH STATUS (Abgegeben > Fertig > Offen)
+                      // DYNAMISCHES STYLING JE NACH STATUS
                       let badgeBg = "#fafafa";
                       let badgeBorder = "#e2e8f0";
                       let badgeTextColor = "#64748b";
@@ -279,13 +287,13 @@ const AdminControlCenter = ({ onUpdate }) => {
                       let badgeShadow = "none";
 
                       if (isSubmitted) {
-                        badgeBg = "#f5f3ff";      // Edles Hell-Lila
-                        badgeBorder = "#d8b4fe";  // Lila Rahmen
-                        badgeTextColor = "#6b21a8"; // Dunkellila Text
+                        badgeBg = "#f5f3ff";      
+                        badgeBorder = "#d8b4fe";  
+                        badgeTextColor = "#6b21a8"; 
                         statusLabel = "🚀 ABGEGEBEN";
                         badgeShadow = "0 2px 6px rgba(107,33,168,0.06)";
                       } else if (isDone) {
-                        badgeBg = "#f0fdf4";      // Hellgrün
+                        badgeBg = "#f0fdf4";      
                         badgeBorder = "#bbf7d0";
                         badgeTextColor = "#166534";
                         statusLabel = "✅ FERTIG";
@@ -313,13 +321,22 @@ const AdminControlCenter = ({ onUpdate }) => {
                             boxShadow: badgeShadow,
                             transition: "all 0.2s ease"
                           }}>
+                            {/* Zeile 1: Ligaspiele */}
                             <span style={{ fontSize: "13px", fontWeight: "700", color: "#334155" }}>
                               ⚽ {stats?.tipped_count || 0}/{stats?.total_matches || 0}
                             </span>
                             
+                            {/* Zeile 2: K.o.-Prognosen */}
                             {stats?.total_prognosis > 0 && (
                               <span style={{ fontSize: "12px", fontWeight: "600", color: "#64748b" }}>
                                 🌳 {stats?.prognosis_count || 0}/{stats?.total_prognosis || 0}
+                              </span>
+                            )}
+
+                            {/* NEU - Zeile 3: Zauberkugel für Bonusfragen */}
+                            {stats?.total_bonus > 0 && (
+                              <span style={{ fontSize: "12px", fontWeight: "600", color: "#64748b" }}>
+                                🔮 {stats?.bonus_count || 0}/{stats?.total_bonus || 0}
                               </span>
                             )}
                             
