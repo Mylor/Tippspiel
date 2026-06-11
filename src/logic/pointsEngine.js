@@ -5,9 +5,10 @@ export const POINTS_CONFIG = {
   MATCH_DIFF: 2,
   MATCH_GOALS_SINGLE: 1,
   MATCH_GOALS_SUM: 1,
-  BONUS_EXACT_LOW: 3,
-  BONUS_EXACT_MID: 4,
-  BONUS_EXACT_HIGH: 5,
+  BONUS_EXACT_LOW: 0,         // Reduziert auf 0
+  BONUS_EXACT_MID: 1,         // Reduziert auf 1
+  BONUS_EXACT_HIGH: 2,        // Reduziert auf 2
+  BONUS_ONE_GOAL_OFF: 1,      // NEU: Trostpunkt für exakt 1 Tor daneben bei richtiger Tendenz
 
   // KO-Runde der letzten 32
   PROG_REACH_16: 4,       // Leichtes Weiterkommen aus der Gruppe
@@ -96,7 +97,7 @@ export const calculateBonusPoints = (qId, userAnswer, realAnswer, basePoints = 2
 
 // --- HELPER: BERECHNET DIE PUNKTE FÜR EINEN EINZELNEN TIPP ---
 export const calculateDetailedMatchPoints = (tip, actual, winnerPoints) => {
-  const points = { winner: 0, diff: 0, goals_a: 0, goals_b: 0, sum: 0, exact_bonus: 0 };
+  const points = { winner: 0, diff: 0, goals_a: 0, goals_b: 0, sum: 0, exact_bonus: 0, one_goal_off: 0 };
   if (!tip || actual.goals_a === null || actual.goals_a === undefined) return { total: 0, breakdown: {} };
 
   const tA = Number(tip.goals_a);
@@ -107,27 +108,41 @@ export const calculateDetailedMatchPoints = (tip, actual, winnerPoints) => {
   const tipWinner = tA > tB ? "1" : tA < tB ? "2" : "0";
   const actualWinner = aA > aB ? "1" : aA < aB ? "2" : "0";
 
-  if (tipWinner === actualWinner) points.winner = winnerPoints;
+  const isWinnerCorrect = tipWinner === actualWinner;
+
+  if (isWinnerCorrect) points.winner = winnerPoints;
   if ((tA - tB) === (aA - aB)) points.diff = POINTS_CONFIG.MATCH_DIFF;
   if (tA === aA) points.goals_a = POINTS_CONFIG.MATCH_GOALS_SINGLE;
   if (tB === aB) points.goals_b = POINTS_CONFIG.MATCH_GOALS_SINGLE;
   if ((tA + tB) === (aA + aB)) points.sum = POINTS_CONFIG.MATCH_GOALS_SUM;
 
+  // 1. Fall: Absoluter Volltreffer (Zusatz-Bonus für hohe Toranzahlen)
   if (tA === aA && tB === aB) {
     const totalGoals = aA + aB;
     if (totalGoals <= 3) points.exact_bonus = POINTS_CONFIG.BONUS_EXACT_LOW;
     else if (totalGoals <= 6) points.exact_bonus = POINTS_CONFIG.BONUS_EXACT_MID;
     else points.exact_bonus = POINTS_CONFIG.BONUS_EXACT_HIGH;
+  } 
+  
+  // 2. Fall: "Knapp daneben"-Punkt (Greift jetzt auch bei Volltreffern, da Abweichung = 0)
+  if (isWinnerCorrect) {
+    const totalGoalDeviation = Math.abs(tA - aA) + Math.abs(tB - aB);
+    if (totalGoalDeviation === 0 || totalGoalDeviation === 1) {
+      points.one_goal_off = POINTS_CONFIG.BONUS_ONE_GOAL_OFF;
+    }
   }
 
   const total = Object.values(points).reduce((acc, val) => acc + val, 0);
   
+  // Der "Knapp daneben"-Punkt zählt laut Wunsch als Bonus-Kategorie
+  const totalBonusDisplay = points.exact_bonus + points.one_goal_off;
+  
   return { 
     total, 
     breakdown: {
-      descr: `Tendenz: ${points.winner}, Diff: ${points.diff}, Tore: ${points.goals_a + points.goals_b}, Summe: ${points.sum}, Bonus: ${points.exact_bonus}`,
+      descr: `Tendenz: ${points.winner}, Diff: ${points.diff}, Tore: ${points.goals_a + points.goals_b}, Summe: ${points.sum}, Bonus: ${totalBonusDisplay}`,
       tip: `${tA}:${tB}`, real: `${aA}:${aB}`, tip_a: tA, tip_b: tB, real_a: aA, real_b: aB,
-      points_winner: points.winner, points_exact: points.exact_bonus, sum_points: total
+      points_winner: points.winner, points_exact: totalBonusDisplay, sum_points: total
     } 
   };
 };
@@ -401,8 +416,6 @@ export async function processBonusQuestionsPoints() {
   bonusTips.forEach(tip => {
     const realAnswer = tip.real_answer;
     if (!realAnswer || realAnswer === "EMPTY") {
-      // Keine Log-Ausgabe hier um Spam zu vermeiden, falls erwünscht einkommentieren:
-      // console.log(`[DEBUG-BONUS] Frage ${tip.question} für User ${tip.user_id} übersprungen, da real_answer leer.`);
       return;
     }
 
@@ -444,6 +457,9 @@ export async function processBonusQuestionsPoints() {
   }
 }
 
+// ==========================================
+// FUNKTION FÜR DIE PROGNOSE-PUNKTE
+// ==========================================
 export async function processPrognosisPoints(allMatches, currentMatch, forcedGroupName = null) {
   if (currentMatch.goals_a_real === null || currentMatch.goals_b_real === null) {
     console.log(`[DEBUG-PROG] Abbruch: Match #${currentMatch.id} hat noch kein reales Ergebnis.`);
@@ -730,7 +746,6 @@ function createPointEntry(playerId, category, points, team, phase, groupName, ma
   if (category === "GROUP_RANK") {
     detailDesc = `Richtige Gruppenplatzierung von ${team} in Phase ${phase}`;
   } else if (category === "PROGNOSIS_PATH") {
-    // Falls die Punkte durch einen Divisor geteilt wurden, nutzen wir den unverfälschten Originalwert
     const originalPoints = extra.original || points;
 
     switch (originalPoints) {
@@ -774,7 +789,6 @@ function createPointEntry(playerId, category, points, team, phase, groupName, ma
         detailDesc = `${team} ist Turniersieger 🎉`;
         break;
       default:
-        // Dynamischer Fallback über die mitgegebenen Runden-Infos aus dem KO-Mapping
         if (extra.roundName) {
           detailDesc = extra.isWinner 
             ? `${team} zieht weiter ein (${extra.roundName})` 

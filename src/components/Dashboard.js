@@ -45,8 +45,6 @@ const Dashboard = ({ player, onLogout }) => {
   const [isMyPhase1Submitted, setIsMyPhase1Submitted] = useState(false); 
   
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  
-  // NEU: State für die Namens-Umschaltung (true = Anzeigename, false = Realname)
   const [showDisplayName, setShowDisplayName] = useState(true);
 
   useEffect(() => {
@@ -132,9 +130,6 @@ const Dashboard = ({ player, onLogout }) => {
         .filter(m => (m.matchday || m.spieltag || 1) === lastEvaluatedMatchday)
         .map(m => m.id);
 
-      // --- LOGIK-PRÜFUNG & ANPASSUNG FÜR DIE RANGLISTE ---
-
-      // 1. Berechne die aktuellen Gesamtpunkte und sortiere absteigend
       const calculatedRanking = players.map(p => {
         const userTotal = allPoints
           .filter(entry => Number(entry.player_id) === Number(p.id))
@@ -143,16 +138,14 @@ const Dashboard = ({ player, onLogout }) => {
       });
       calculatedRanking.sort((a, b) => b.points - a.points);
 
-      // Korrektur: Zuweisung gleicher Ränge bei Punktegleichheit (Aktuell)
       let currentRank = 1;
       const calculatedRankingWithRank = calculatedRanking.map((player, index) => {
         if (index > 0 && player.points < calculatedRanking[index - 1].points) {
-          currentRank = index + 1; // Falls weniger Punkte als der vorherige Spieler, nimm den echten Index (+1)
+          currentRank = index + 1;
         }
         return { ...player, rank: currentRank };
       });
 
-      // 2. Berechne die vorherigen Punkte (vor dem letzten Spieltag) und sortiere absteigend
       const previousRanking = players.map(p => {
         const prevTotal = allPoints
           .filter(entry => Number(entry.player_id) === Number(p.id) && !lastMatchdayMatchIds.includes(entry.match_id))
@@ -161,7 +154,6 @@ const Dashboard = ({ player, onLogout }) => {
       });
       previousRanking.sort((a, b) => b.points - a.points);
 
-      // Korrektur: Zuweisung gleicher Ränge bei Punktegleichheit (Vorher)
       let prevRankCount = 1;
       const previousRankingWithRank = previousRanking.map((player, index) => {
         if (index > 0 && player.points < previousRanking[index - 1].points) {
@@ -170,20 +162,16 @@ const Dashboard = ({ player, onLogout }) => {
         return { ...player, rank: prevRankCount };
       });
 
-      // 3. Vergleiche die echten Ränge (statt Indizes) zur Trendbestimmung
       const rankingWithTrends = calculatedRankingWithRank.map((player) => {
         const cRank = player.rank;
         const prevPlayer = previousRankingWithRank.find(r => r.id === player.id);
         const pRank = prevPlayer ? prevPlayer.rank : cRank;
 
         let trend = "equal";
-        if (cRank < pRank) trend = "up";     // Rang-Zahl ist kleiner geworden -> Aufstieg (z.B. von Platz 3 auf Platz 1)
-        if (cRank > pRank) trend = "down";   // Rang-Zahl ist größer geworden -> Abstieg (z.B. von Platz 1 auf Platz 3)
+        if (cRank < pRank) trend = "up";
+        if (cRank > pRank) trend = "down";
 
-        // NEU: Numerische Differenz für exakte Trendanzeige berechnen (z.B. +2, -1, 0)
         const matchdayTrend = pRank - cRank;
-
-        // Gibt 'rank', 'trend' und 'matchdayTrend' sauber an das State-Objekt weiter
         return { ...player, rank: cRank, trend, matchdayTrend };
       });
 
@@ -222,6 +210,9 @@ const Dashboard = ({ player, onLogout }) => {
 
   const displayName = localPlayer.display_name && localPlayer.display_name !== "EMPTY" ? localPlayer.display_name : localPlayer.name;
 
+  // Ermittle dynamisch das eigene Team für das Highlighting oben
+  const myTeamName = FORMATION_MAPPING[localPlayer.id]?.team;
+
   const renderMatchTendencyCard = (m) => {
     const matchTips = allCommunityTips.filter(t => Number(t.match_id) === Number(m.id));
     const totalTips = matchTips.length;
@@ -244,7 +235,7 @@ const Dashboard = ({ player, onLogout }) => {
     }
 
     const myTip = matchTips.find(t => Number(t.player_id) === Number(localPlayer.id));
-    const hasRealResult = m.goals_a_real !== null && m.goals_a_real !== undefined && m.goals_a_real !== '';
+    const hasRealResult = m.goals_a_real !== null && m.goals_b_real !== null && m.goals_a_real !== undefined && m.goals_b_real !== undefined && m.goals_a_real !== '';
 
     let correctTendency = null;
     if (hasRealResult) {
@@ -253,6 +244,26 @@ const Dashboard = ({ player, onLogout }) => {
       if (realA > realB) correctTendency = "A";
       else if (realA < realB) correctTendency = "B";
       else correctTendency = "Draw";
+    }
+
+    // --- NEU: DYNAMISCHE ERGEBNIS-FARBBERECHNUNG ---
+    let tipColor = "#2563eb"; // Standard-Blau bei keinem Ergebnis
+    if (hasRealResult && myTip) {
+      const realA = Number(m.goals_a_real);
+      const realB = Number(m.goals_b_real);
+      const tipA = Number(myTip.goals_a);
+      const tipB = Number(myTip.goals_b);
+
+      if (realA === tipA && realB === tipB) {
+        tipColor = "#eab308"; // Gold bei Volltreffer
+      } else {
+        const tipTendency = tipA > tipB ? "A" : tipA < tipB ? "B" : "Draw";
+        if (tipTendency === correctTendency) {
+          tipColor = "#2563eb"; // Blau bei richtiger Tendenz
+        } else {
+          tipColor = "#ef4444"; // Rot bei falschem Sieger
+        }
+      }
     }
 
     return (
@@ -335,9 +346,11 @@ const Dashboard = ({ player, onLogout }) => {
               )}
               {winB > 0 && (
                 <div style={{ 
-                  width: `${pctB}%`, backgroundColor: "#3b82f6", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: "0.75rem", fontWeight: "700",
+                  width: `${pctB}%`, 
+                  backgroundColor: "#8b5cf6", // NEU: Lila statt Blau im Balken
+                  display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: "0.75rem", fontWeight: "700",
                   opacity: hasRealResult ? (correctTendency === "B" ? 1 : 0.25) : 1,
-                  boxShadow: hasRealResult && correctTendency === "B" ? "inset 0 0 0 2px #1e40af" : "none",
+                  boxShadow: hasRealResult && correctTendency === "B" ? "inset 0 0 0 2px #6d28d9" : "none", // Angepasstes dunkleres Lila
                   transition: "opacity 0.2s ease"
                 }} title={`${m.team_b} gewinnt: ${winB} Tipps`}>
                   {winB}
@@ -349,13 +362,13 @@ const Dashboard = ({ player, onLogout }) => {
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.85rem", flexWrap: "wrap", gap: "10px" }}>
           <div style={{ fontWeight: "600", color: "#334155" }}>
-            Dein Tipp: <span style={{ color: "#2563eb", fontWeight: "800" }}>{myTip ? `${myTip.goals_a} : ${myTip.goals_b}` : "—"}</span>
+            Dein Tipp: <span style={{ color: tipColor, fontWeight: "800" }}>{myTip ? `${myTip.goals_a} : ${myTip.goals_b}` : "—"}</span>
           </div>
           {isMyPhase1Submitted && (
             <div style={{ display: "flex", gap: "12px", fontSize: "0.75rem", color: "#64748b", fontWeight: "600" }}>
               <span style={{ display: "flex", alignItems: "center", gap: "4px" }}><span style={{ display: "inline-block", width: "8px", height: "8px", backgroundColor: "#22c55e", borderRadius: "50%" }}></span>{m.team_a} gewinnt</span>
               <span style={{ display: "flex", alignItems: "center", gap: "4px" }}><span style={{ display: "inline-block", width: "8px", height: "8px", backgroundColor: "#94a3b8", borderRadius: "50%" }}></span>Unentschieden</span>
-              <span style={{ display: "flex", alignItems: "center", gap: "4px" }}><span style={{ display: "inline-block", width: "8px", height: "8px", backgroundColor: "#3b82f6", borderRadius: "50%" }}></span>{m.team_b} gewinnt</span>
+              <span style={{ display: "flex", alignItems: "center", gap: "4px" }}><span style={{ display: "inline-block", width: "8px", height: "8px", backgroundColor: "#8b5cf6", borderRadius: "50%" }}></span>{m.team_b} gewinnt</span> {/* NEU: Lila Punkt */}
             </div>
           )}
         </div>
@@ -589,17 +602,40 @@ const Dashboard = ({ player, onLogout }) => {
                 </div>
               </div>
 
+              {/* TEAM-SCOREBOARD MIT HIGHLIGHTING FÜR DEIN TEAM */}
               <div style={{ 
                 display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px", 
                 backgroundColor: "#f8fafc", padding: "12px 16px", borderRadius: "10px", 
                 marginBottom: "20px", border: "1px solid #e2e8f0"
               }}>
-                {sortedTeams.map((t) => (
-                  <div key={t.name} style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
-                    <span style={{ fontWeight: "700", color: "#475569", fontSize: "0.85rem" }}>Team {t.name} ({t.symbol}):</span>
-                    <span style={{ color: "#2563eb", fontWeight: "800", fontSize: "1rem", marginTop: "2px" }}>{t.points} Punkte</span>
-                  </div>
-                ))}
+                {sortedTeams.map((t) => {
+                  const isMyTeam = t.name === myTeamName;
+                  return (
+                    <div 
+                      key={t.name} 
+                      style={{ 
+                        display: "flex", 
+                        flexDirection: "column", 
+                        alignItems: "center", 
+                        justifyContent: "center", 
+                        textAlign: "center",
+                        padding: "8px 6px",
+                        borderRadius: "8px",
+                        backgroundColor: isMyTeam ? "#ffffff" : "transparent",
+                        border: isMyTeam ? "2px solid #eab308" : "2px solid transparent", // Goldener Rahmen für dein Team
+                        boxShadow: isMyTeam ? "0 4px 10px rgba(234, 179, 8, 0.18)" : "none", // Schicker Glow
+                        transition: "all 0.3s ease"
+                      }}
+                    >
+                      <span style={{ fontWeight: "700", color: isMyTeam ? "#0f172a" : "#475569", fontSize: "0.85rem" }}>
+                        {isMyTeam ? "⭐ " : ""}Team {t.name} ({t.symbol}):
+                      </span>
+                      <span style={{ color: isMyTeam ? "#eab308" : "#2563eb", fontWeight: "800", fontSize: "1.05rem", marginTop: "2px" }}>
+                        {t.points} Punkte
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
 
               <table style={{ ...DASHBOARD_STYLES.table, width: "100%" }}>
@@ -627,7 +663,6 @@ const Dashboard = ({ player, onLogout }) => {
                           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                             <span>{entry.rank}.</span>
                             
-                            {/* DYNAMISCHE TREND-ANZEIGE MIT EXAKTEN WERTEN */}
                             {entry.trend === "up" && (
                               <span style={{ color: "#22c55e", fontSize: "0.75rem", fontWeight: "700", marginLeft: "2px" }} title={`Verbessert um ${entry.matchdayTrend} Plätze`}>
                                 ▲ +{entry.matchdayTrend}
