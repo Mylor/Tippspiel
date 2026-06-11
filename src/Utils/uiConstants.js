@@ -64,7 +64,14 @@ export const UI_STYLES = {
     fontSize: "0.9rem", textAlign: "center", fontWeight: "bold", 
     color: "#1a73e8", display: "flex", flexDirection: "column", gap: "2px" 
   },
-  winnerSubText: { fontSize: "0.65rem", color: "#666", fontWeight: "normal" }
+  winnerSubText: { fontSize: "0.65rem", color: "#666", fontWeight: "normal" },
+
+  // NEU HINZUGEFÜGT: Objekt-Styles für universelle Trend-Pfeile (Grün / Rot / Grau)
+  trend: {
+    up: { color: "#22c55e", backgroundColor: "rgba(34, 197, 94, 0.1)", padding: "4px", borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center" },
+    down: { color: "#ef4444", backgroundColor: "rgba(239, 68, 68, 0.1)", padding: "4px", borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center" },
+    stable: { color: "#94a3b8", fontWeight: "bold", padding: "0 4px" }
+  }
 };
 
 // --- KO-BRACKET SPEZIFISCHE STYLES ---
@@ -190,12 +197,10 @@ export const DASHBOARD_STYLES = {
   td: { padding: "15px", borderBottom: "1px solid #f1f5f9" },
   myRow: { backgroundColor: "#f0f9ff", fontWeight: "700", color: "#0369a1" },
   logoutButton: { padding: "12px", marginTop: "20px", cursor: "pointer", backgroundColor: "#fff", border: "1px solid #fee2e2", borderRadius: "10px", color: "#dc2626", fontWeight: "600" },
-  
-  // Neu hinzugefügt & visuell an das helle Design angepasst:
   playerName: {
     fontSize: "1.25rem",
     fontWeight: "700",
-    color: "#0f172a", // Dunkles Anthrazit passend zu contentTitle
+    color: "#0f172a", 
     letterSpacing: "0.02em"
   },
   jerseyIconLarge: {
@@ -207,6 +212,15 @@ export const DASHBOARD_STYLES = {
   jerseyIconMedium: {
     width: "32px",
     height: "32px"
+  },
+
+  // NEU HINZUGEFÜGT: Explizite Ranglisten-Trend-Objekte für das Dashboard
+  ranking: {
+    container: { backgroundColor: "#fff", padding: "25px", borderRadius: "16px", border: "1px solid #e2e8f0", boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)" },
+    row: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0", borderBottom: "1px solid #f1f5f9" },
+    indicatorUp: { color: "#16a34a", backgroundColor: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "6px", padding: "4px", display: "flex", alignItems: "center", justifyContent: "center", width: "24px", height: "24px" },
+    indicatorDown: { color: "#dc2626", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "6px", padding: "4px", display: "flex", alignItems: "center", justifyContent: "center", width: "24px", height: "24px" },
+    indicatorStable: { color: "#94a3b8", backgroundColor: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "6px", padding: "4px", display: "flex", alignItems: "center", justifyContent: "center", width: "24px", height: "24px" }
   }
 };
 

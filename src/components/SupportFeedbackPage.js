@@ -6,21 +6,21 @@ const FAQ_DATA = [
   {
     category: "⚽ Rund ums Tippen",
     items: [
-      { q: "Bis wann kann ich meine Tipps abgeben?", a: "Tipps können bis einen Tag vor dem jeweiligen Phassenanfang eingetragen und geändert werden. Danach werden die Tipps gesperrt und können nur noch angeschaut werden." },
-      { q: "Warum gibt es 5 verschiedene Phasen in denen ich Tipps abgenen muss?", a: "In der ersten Phase tippt ihr alle Gruppenspiele. Der KO-Baum der dann entsteht basiert dann auf den eigenen Tipps und deswegen wird hier nur Sieger/Verliere getippt. Wenn das später auch so eintritt gibt es dafür extra Punkte. Wenn dann die wahren Sechzehntelfinale bekannt sind wird dann in Phase 2 wieder erneut getippt und das Spiel geht von vorne los. Das ganze soll dann also eine Mischung aus Tipps sein und Vermutungen welches Team wie weit im Turnier kommt." }
+      { q: "Bis wann kann ich meine Tipps abgeben?", a: "Tipps können bis einen Tag vor dem jeweiligen Phasenanfang eingetragen und geändert werden. Danach werden die Tipps gesperrt und können nur noch angeschaut werden." },
+      { q: "Warum gibt es 5 verschiedene Phasen in denen ich Tipps abgeben muss?", a: "In der ersten Phase tippt ihr alle Gruppenspiele. Der KO-Baum der dann entsteht, basiert dann auf den eigenen Tipps und deswegen wird hier nur Sieger/Verlierer getippt. Wenn das später auch so eintritt gibt es dafür extra Punkte. Wenn dann die wahren Sechzehntelfinale bekannt sind, wird dann in Phase 2 wieder erneut getippt und das Tippen geht von vorne los. Das ganze soll dann also eine Mischung aus Tipps sein und Vermutungen welches Team wie weit im Turnier kommt." }
     ]
   },
   {
     category: "🏆 Punkteverteilung",
     items: [
       { q: "Wie berechnen sich die Punkte?", a: "Exaktes Ergebnis = +3 Punkte. Richtige Tordifferenz = +2 Punkte. Richtige Tendenz (Sieg/Unentschieden) = +4 Punkte. Richtige Toranzahl Team A/Team B/Gesamtanzahl = jeweils +1 Punkt." },
-      { q: "Wie werden die Prognosepunkte vergeben?", a: "Es gibt immer Punkte wenn ein Team weiterkommt/ausscheidet und man das selber auch getippt hat. Das zählt für jede Phase und jede Art von Finale." }
+      { q: "Wie werden die Prognosepunkte vergeben?", a: "Es gibt immer Punkte wenn ein Team weiterkommt/ausscheidet und man das selber auch getippt hat. Das zählt für jede Phase und jede Art von KO-Spiel." }
     ]
   },
   {
     category: "💻 Technische Fragen",
     items: [
-      { q: "Meine Punkte wurden nach Abpfiff nicht direkt aktualisiert?", a: "Die Auswertung erfolgt manuell durch den Admin kurz nach Spielende. Hab einfach ein paar Minuten Geduld." },
+      { q: "Meine Punkte wurden nach Abpfiff nicht direkt aktualisiert?", a: "Die Auswertung erfolgt manuell durch den Admin kurz nach Spielende. Hab einfach ein wenig Geduld." },
       { q: "Ich habe einen Fehler gefunden oder mir kommt etwas nicht richtig vor, was kann ich machen?",a: "Gerne ein Bug-Report abschließen, oder dem Admin selber schreiben. " }
     ]
   }
@@ -148,7 +148,12 @@ function SupportFeedbackPage({ playerId, playerName, isAdmin }) {
                 {tickets.map(t => (
                   <div key={t.id} style={{ padding: "15px", backgroundColor: "white", borderRadius: "6px", border: `2px solid ${t.is_finished ? "#b91c1c" : "#e2e8f0"}`, opacity: t.is_finished ? 0.7 : 1 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                      <strong>{t.player_name} <span style={{ fontWeight: "normal", fontSize: "0.85em", color: "#64748b" }}>(ID: {t.player_id})</span></strong>
+                      <strong style={{ color: "#000000" }}>
+                        {t.player_name}{" "}
+                        <span style={{ fontWeight: "normal", fontSize: "0.85em", color: "#000000" }}>
+                          (ID: {t.player_id})
+                        </span>
+                      </strong>
                       <span style={{ padding: "2px 8px", borderRadius: "4px", fontSize: "0.8em", fontWeight: "bold", backgroundColor: t.ticket_type === "BUG_REPORT" ? "#fee2e2" : "#dbeafe", color: t.ticket_type === "BUG_REPORT" ? "#991b1b" : "#1e40af" }}>
                         {t.ticket_type === "BUG_REPORT" ? "🐛 BUG" : "💡 IDEE"}
                       </span>
@@ -190,7 +195,7 @@ function SupportFeedbackPage({ playerId, playerName, isAdmin }) {
 
             <div style={{ display: "flex", gap: "20px", alignItems: "flex-start", flexWrap: "wrap" }}>
               <div style={{ flex: "1", minWidth: "150px" }}>
-                <label style={{ display: "block", marginBottom: "5px", fontWeight: "bold", color: "#475569" }}>Typ auswähle</label>
+                <label style={{ display: "block", marginBottom: "5px", fontWeight: "bold", color: "#475569" }}>Typ auswählen</label>
                 <select
                   value={ticketType}
                   onChange={(e) => { setTicketType(e.target.value); setSelectedFile(null); }}
@@ -232,7 +237,7 @@ function SupportFeedbackPage({ playerId, playerName, isAdmin }) {
               <h3 style={{ marginTop: 0, color: "#1e293b" }}>Admin-Dashboard</h3>
               <p style={{ color: "#475569", lineHeight: "1.5" }}>Hier siehst du alle Einsendungen deiner Mitspieler.</p>
               <ul style={{ paddingLeft: "20px", color: "#475569", fontSize: "0.95em" }}>
-                <li>Bugs sind rot umrandet, Ideen blau.</li>
+                <li>Bugs are rot umrandet, Ideen blau.</li>
                 <li>Mit Klick auf den Haken verschwinden erledigte Dinge zwar nicht, werden aber markiert.</li>
               </ul>
             </>
@@ -242,12 +247,12 @@ function SupportFeedbackPage({ playerId, playerName, isAdmin }) {
               {loading ? <p>Lade Status...</p> : tickets.length === 0 ? <p style={{ color: "#64748b", fontSize: "0.9em" }}>Du hast noch keine Tickets eingereicht.</p> : (
                 <div style={{ display: "flex", flexDirection: "column", gap: "10px", maxHeight: "250px", overflowY: "auto" }}>
                   {tickets.map(t => (
-                    <div key={t.id} style={{ backgroundColor: "white", padding: "10px", borderRadius: "6px", border: "1px solid #e2e8f0", fontSize: "0.9em" }}>
+                    <div key={t.id} style={{ backgroundColor: "white", padding: "10px", borderRadius: "6px", border: "1px solid #e2e8f0", fontSize: "0.9em", color: "#000000" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "5px" }}>
-                        <span style={{ fontWeight: "bold" }}>{t.ticket_type === "BUG_REPORT" ? "🐛 Bug" : "💡 Idee"}</span>
-                        <span>{t.is_finished ? "🎉 Umgesetzt" : "⏳ In Arbeit"}</span>
+                        <span style={{ fontWeight: "bold", color: "#000000" }}>{t.ticket_type === "BUG_REPORT" ? "🐛 Bug" : "💡 Idee"}</span>
+                        <span style={{ color: "#000000" }}>{t.is_finished ? "🎉 Umgesetzt" : "⏳ In Arbeit"}</span>
                       </div>
-                      <p style={{ margin: 0, color: "#475569", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>{t.message}</p>
+                      <p style={{ margin: 0, color: "#000000", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>{t.message}</p>
                     </div>
                   ))}
                 </div>

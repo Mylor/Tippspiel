@@ -65,7 +65,7 @@ const GroupTable = ({
         <div style={GROUP_TABLE_STYLES.headerContainer}>
           <h3 style={GROUP_TABLE_STYLES.groupTitle}>Gruppe {groupName}</h3>
           
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
             {/* Speichern-Button verschwindet, sobald die Gruppe gesichert ist */}
             {!isGroupSaved && !isSubmitted && !isAdmin && (
               <button 

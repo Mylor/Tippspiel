@@ -6,6 +6,9 @@ import { DASHBOARD_STYLES, getTabButtonStyle, getPhaseButtonStyle } from "../Uti
 import { FlagIcon } from "../Utils/teamUtils";
 import { RetroJersey } from "../Utils/RetroJersey";
 
+// Importiere die globalen Team-Mappings & Symbole aus der App
+import { FORMATION_MAPPING, TEAM_SYMBOLS } from "../App";
+
 // --- COMPONENTS ---
 import CountdownTimer from "./CountdownTimer"; 
 import TippsPage from "./TippsPage";
@@ -39,13 +42,12 @@ const Dashboard = ({ player, onLogout }) => {
   const [allPhases, setAllPhases] = useState([]); 
   const [loading, setLoading] = useState(true);
   const [isPhase1Locked, setIsPhase1Locked] = useState(false);
-  const [isMyPhase1Submitted, setIsMyPhase1Submitted] = useState(false); // NEU: Prüft eigene Abgabe
+  const [isMyPhase1Submitted, setIsMyPhase1Submitted] = useState(false); 
   
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
+  
+  // NEU: State für die Namens-Umschaltung (true = Anzeigename, false = Realname)
+  const [showDisplayName, setShowDisplayName] = useState(true);
 
   useEffect(() => {
     if (activePhase === "ranking") {
@@ -61,7 +63,7 @@ const Dashboard = ({ player, onLogout }) => {
         supabase.from("tip_phase").select("*").order("id", { ascending: true }),
         supabase.from("match").select("*").order("match_order", { ascending: true }),
         supabase.from("player").select("id, name, display_name, name_color, jersey_number, supported_country, is_admin"),
-        supabase.from("player_phase_submission").select("*").eq("player_id", player.id).eq("phase_id", 1).maybeSingle() // NEU: Eigene Abgabe laden
+        supabase.from("player_phase_submission").select("*").eq("player_id", player.id).eq("phase_id", 1).maybeSingle()
       ]);
 
       const phasesData = phasesRes.data || [];
@@ -71,7 +73,7 @@ const Dashboard = ({ player, onLogout }) => {
       setAllPhases(phasesData);
       setSystemConfig(configRes.data);
       setAllMatches(matchesData);
-      setIsMyPhase1Submitted(mySubmissionRes.data?.is_submitted || false); // NEU: State setzen
+      setIsMyPhase1Submitted(mySubmissionRes.data?.is_submitted || false);
 
       const phase1 = phasesData.find(p => Number(p.id) === 1);
       setIsPhase1Locked(phase1 ? (phase1.is_submitted || configRes.data?.tips_locked_global) : false);
@@ -85,7 +87,7 @@ const Dashboard = ({ player, onLogout }) => {
         ? Math.max(...finishedMatches.map(m => m.matchday || m.spieltag || 1)) 
         : 0;
 
-      const currentLastSpieltag = finishedMatches.length > 0 ? lastEvaluatedMatchday : 0; // Geändert auf 0, wenn kein Spiel fertig ist
+      const currentLastSpieltag = finishedMatches.length > 0 ? lastEvaluatedMatchday : 0; 
       const currentNextSpieltag = finishedMatches.length > 0 ? currentLastSpieltag + 1 : 1;
 
       const visibleMatches = matchesData.filter(m => 
@@ -130,6 +132,9 @@ const Dashboard = ({ player, onLogout }) => {
         .filter(m => (m.matchday || m.spieltag || 1) === lastEvaluatedMatchday)
         .map(m => m.id);
 
+      // --- LOGIK-PRÜFUNG & ANPASSUNG FÜR DIE RANGLISTE ---
+
+      // 1. Berechne die aktuellen Gesamtpunkte und sortiere absteigend
       const calculatedRanking = players.map(p => {
         const userTotal = allPoints
           .filter(entry => Number(entry.player_id) === Number(p.id))
@@ -138,6 +143,16 @@ const Dashboard = ({ player, onLogout }) => {
       });
       calculatedRanking.sort((a, b) => b.points - a.points);
 
+      // Korrektur: Zuweisung gleicher Ränge bei Punktegleichheit (Aktuell)
+      let currentRank = 1;
+      const calculatedRankingWithRank = calculatedRanking.map((player, index) => {
+        if (index > 0 && player.points < calculatedRanking[index - 1].points) {
+          currentRank = index + 1; // Falls weniger Punkte als der vorherige Spieler, nimm den echten Index (+1)
+        }
+        return { ...player, rank: currentRank };
+      });
+
+      // 2. Berechne die vorherigen Punkte (vor dem letzten Spieltag) und sortiere absteigend
       const previousRanking = players.map(p => {
         const prevTotal = allPoints
           .filter(entry => Number(entry.player_id) === Number(p.id) && !lastMatchdayMatchIds.includes(entry.match_id))
@@ -146,16 +161,30 @@ const Dashboard = ({ player, onLogout }) => {
       });
       previousRanking.sort((a, b) => b.points - a.points);
 
-      const rankingWithTrends = calculatedRanking.map((player, currentIndex) => {
-        const currentRank = currentIndex + 1;
-        const prevIndex = previousRanking.findIndex(r => r.id === player.id);
-        const prevRank = prevIndex !== -1 ? prevIndex + 1 : currentRank;
+      // Korrektur: Zuweisung gleicher Ränge bei Punktegleichheit (Vorher)
+      let prevRankCount = 1;
+      const previousRankingWithRank = previousRanking.map((player, index) => {
+        if (index > 0 && player.points < previousRanking[index - 1].points) {
+          prevRankCount = index + 1;
+        }
+        return { ...player, rank: prevRankCount };
+      });
+
+      // 3. Vergleiche die echten Ränge (statt Indizes) zur Trendbestimmung
+      const rankingWithTrends = calculatedRankingWithRank.map((player) => {
+        const cRank = player.rank;
+        const prevPlayer = previousRankingWithRank.find(r => r.id === player.id);
+        const pRank = prevPlayer ? prevPlayer.rank : cRank;
 
         let trend = "equal";
-        if (currentRank < prevRank) trend = "up";
-        if (currentRank > prevRank) trend = "down";
+        if (cRank < pRank) trend = "up";     // Rang-Zahl ist kleiner geworden -> Aufstieg (z.B. von Platz 3 auf Platz 1)
+        if (cRank > pRank) trend = "down";   // Rang-Zahl ist größer geworden -> Abstieg (z.B. von Platz 1 auf Platz 3)
 
-        return { ...player, trend };
+        // NEU: Numerische Differenz für exakte Trendanzeige berechnen (z.B. +2, -1, 0)
+        const matchdayTrend = pRank - cRank;
+
+        // Gibt 'rank', 'trend' und 'matchdayTrend' sauber an das State-Objekt weiter
+        return { ...player, rank: cRank, trend, matchdayTrend };
       });
 
       setRanking(rankingWithTrends);
@@ -167,7 +196,7 @@ const Dashboard = ({ player, onLogout }) => {
     } catch (error) {
       console.error("Fehler beim Laden der Dashboard-Daten:", error);
     } finally {
-      setLoading(false);
+      loading && setLoading(false);
     }
   }
 
@@ -205,52 +234,75 @@ const Dashboard = ({ player, onLogout }) => {
     const pctDraw = totalTips > 0 ? (draw / totalTips) * 100 : 0;
     const pctB = totalTips > 0 ? (winB / totalTips) * 100 : 0;
 
+    let expectedGoalsA = "0,00";
+    let expectedGoalsB = "0,00";
+    if (totalTips > 0) {
+      const totalGoalsA = matchTips.reduce((sum, t) => sum + Number(t.goals_a || 0), 0);
+      const totalGoalsB = matchTips.reduce((sum, t) => sum + Number(t.goals_b || 0), 0);
+      expectedGoalsA = (totalGoalsA / totalTips).toFixed(2).replace(".", ",");
+      expectedGoalsB = (totalGoalsB / totalTips).toFixed(2).replace(".", ",");
+    }
+
     const myTip = matchTips.find(t => Number(t.player_id) === Number(localPlayer.id));
     const hasRealResult = m.goals_a_real !== null && m.goals_a_real !== undefined && m.goals_a_real !== '';
+
+    let correctTendency = null;
+    if (hasRealResult) {
+      const realA = Number(m.goals_a_real);
+      const realB = Number(m.goals_b_real);
+      if (realA > realB) correctTendency = "A";
+      else if (realA < realB) correctTendency = "B";
+      else correctTendency = "Draw";
+    }
 
     return (
       <div key={m.id} style={{
         backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px",
         padding: "16px", marginBottom: "14px", boxShadow: "0 1px 3px rgba(0,0,0,0.05)"
       }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ 
-              backgroundColor: '#e2e8f0',
-              color: '#475569', 
-              fontWeight: '700', 
-              fontSize: '0.65rem',
-              padding: '1px 2px',
-              borderRadius: '4px',
-              minWidth: '15px', 
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-              lineHeight: '1'
-            }}>
-              {m.match_no || m.match_order}
-            </span>
-            <span style={{ fontSize: "0.85rem", color: "#64748b", fontWeight: "600" }}>Gruppe {m.group_name}</span>
+        
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "12px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+            
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <span style={{ 
+                backgroundColor: '#e2e8f0', color: '#475569', fontWeight: '700', fontSize: '0.65rem',
+                padding: '2px 5px', borderRadius: '4px', display: 'inline-flex',
+                alignItems: 'center', justifyContent: 'center', flexShrink: 0, lineHeight: '1'
+              }}>
+                {m.match_no || m.match_order}
+              </span>
+              <span style={{ fontSize: "0.85rem", color: "#64748b", fontWeight: "600" }}>Gruppe {m.group_name}</span>
+            </div>
+
+            <span style={{ color: "#cbd5e1" }}>|</span>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.95rem", fontWeight: "700", color: "#0f172a" }}>
+              <FlagIcon teamName={m.team_a} />
+              <span>{m.team_a}</span>
+              <span style={{ color: "#94a3b8", fontWeight: "500", fontSize: "0.85rem", margin: "0 2px" }}>vs.</span>
+              <FlagIcon teamName={m.team_b} />
+              <span>{m.team_b}</span>
+            </div>
+
+            {totalTips > 0 && (
+              <>
+                <span style={{ color: "#cbd5e1" }}>|</span>
+                <span style={{ fontSize: "0.85rem", color: "#475569", backgroundColor: "#f1f5f9", padding: "2px 8px", borderRadius: "6px", fontWeight: "500" }}>
+                  erwartete Tore: <strong style={{ color: "#0f172a" }}>{expectedGoalsA} : {expectedGoalsB}</strong>
+                </span>
+              </>
+            )}
           </div>
 
           {hasRealResult && (
-            <span style={{ backgroundColor: "#10b981", color: "white", padding: "2px 8px", borderRadius: "6px", fontSize: "0.8rem", fontWeight: "700", marginLeft: "auto" }}>
+            <span style={{ backgroundColor: "#10b981", color: "white", padding: "3px 10px", borderRadius: "6px", fontSize: "0.8rem", fontWeight: "700" }}>
               Endergebnis: {m.goals_a_real} : {m.goals_b_real}
             </span>
           )}
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "1.05rem", fontWeight: "700", color: "#0f172a", marginBottom: "12px" }}>
-          <FlagIcon teamName={m.team_a} />
-          <span>{m.team_a}</span>
-          <span style={{ color: "#94a3b8", fontWeight: "500", fontSize: "0.95rem", margin: "0 4px" }}>vs.</span>
-          <FlagIcon teamName={m.team_b} />
-          <span>{m.team_b}</span>
-        </div>
-
-        {/* 🔒 NEU: Balken-Sperre, falls Phase 1 vom User noch nicht final abgegeben wurde */}
-        <div style={{ display: "flex", height: "20px", width: "100%", borderRadius: "6px", overflow: "hidden", backgroundColor: "#f1f5f9", marginBottom: "12px" }}>
+        <div style={{ display: "flex", height: "22px", width: "100%", borderRadius: "6px", overflow: "hidden", backgroundColor: "#f1f5f9", marginBottom: "12px" }}>
           {!isMyPhase1Submitted ? (
             <div style={{ width: "100%", backgroundColor: "#e2e8f0", color: "#64748b", fontSize: "0.75rem", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "600", fontStyle: "italic", gap: "4px" }}>
               🔒 Tendenzen der Tipper erst sichtbar nach deiner Abgabe von Phase 1
@@ -261,9 +313,36 @@ const Dashboard = ({ player, onLogout }) => {
             </div>
           ) : (
             <>
-              {winA > 0 && <div style={{ width: `${pctA}%`, backgroundColor: "#22c55e", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: "0.75rem", fontWeight: "700" }} title={`${m.team_a} gewinnt: ${winA} Tipps`}>{winA}</div>}
-              {draw > 0 && <div style={{ width: `${pctDraw}%`, backgroundColor: "#94a3b8", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: "0.75rem", fontWeight: "700" }} title={`Unentschieden: ${draw} Tipps`}>{draw}</div>}
-              {winB > 0 && <div style={{ width: `${pctB}%`, backgroundColor: "#3b82f6", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: "0.75rem", fontWeight: "700" }} title={`${m.team_b} gewinnt: ${winB} Tipps`}>{winB}</div>}
+              {winA > 0 && (
+                <div style={{ 
+                  width: `${pctA}%`, backgroundColor: "#22c55e", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: "0.75rem", fontWeight: "700",
+                  opacity: hasRealResult ? (correctTendency === "A" ? 1 : 0.25) : 1,
+                  boxShadow: hasRealResult && correctTendency === "A" ? "inset 0 0 0 2px #166534" : "none",
+                  transition: "opacity 0.2s ease"
+                }} title={`${m.team_a} gewinnt: ${winA} Tipps`}>
+                  {winA}
+                </div>
+              )}
+              {draw > 0 && (
+                <div style={{ 
+                  width: `${pctDraw}%`, backgroundColor: "#94a3b8", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: "0.75rem", fontWeight: "700",
+                  opacity: hasRealResult ? (correctTendency === "Draw" ? 1 : 0.25) : 1,
+                  boxShadow: hasRealResult && correctTendency === "Draw" ? "inset 0 0 0 2px #334155" : "none",
+                  transition: "opacity 0.2s ease"
+                }} title={`Unentschieden: ${draw} Tipps`}>
+                  {draw}
+                </div>
+              )}
+              {winB > 0 && (
+                <div style={{ 
+                  width: `${pctB}%`, backgroundColor: "#3b82f6", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: "0.75rem", fontWeight: "700",
+                  opacity: hasRealResult ? (correctTendency === "B" ? 1 : 0.25) : 1,
+                  boxShadow: hasRealResult && correctTendency === "B" ? "inset 0 0 0 2px #1e40af" : "none",
+                  transition: "opacity 0.2s ease"
+                }} title={`${m.team_b} gewinnt: ${winB} Tipps`}>
+                  {winB}
+                </div>
+              )}
             </>
           )}
         </div>
@@ -290,10 +369,25 @@ const Dashboard = ({ player, onLogout }) => {
     m.goals_a_real !== '' && m.goals_b_real !== ''
   );
 
-  // Relevante Spieltage ermitteln
   const hasFinishedMatches = finishedMatchesList.length > 0;
   const currentLastSpieltag = hasFinishedMatches ? Math.max(...finishedMatchesList.map(m => m.matchday || m.spieltag || 1)) : 0;
   const currentNextSpieltag = hasFinishedMatches ? currentLastSpieltag + 1 : 1;
+
+  const teamScores = { Alpha: 0, Beta: 0, Gamma: 0 };
+  ranking.forEach(entry => {
+    const teamName = FORMATION_MAPPING[entry.id]?.team;
+    if (teamName && teamScores[teamName] !== undefined) {
+      teamScores[teamName] += entry.points;
+    }
+  });
+
+  const sortedTeams = Object.keys(teamScores)
+    .map(key => ({
+      name: key,
+      points: parseFloat(teamScores[key].toFixed(1)),
+      symbol: TEAM_SYMBOLS[key] || ""
+    }))
+    .sort((a, b) => b.points - a.points);
 
   return (
     <div style={{ display: "flex", height: "100vh", width: "100vw", overflow: "hidden", margin: 0, padding: 0, backgroundColor: "#f8fafc" }}>
@@ -323,8 +417,7 @@ const Dashboard = ({ player, onLogout }) => {
         <div style={{ 
           ...DASHBOARD_STYLES.profileBox, display: "flex", flexDirection: "column", gap: "14px", 
           padding: isSidebarCollapsed ? "8px" : "16px", boxSizing: "border-box",
-          border: "1px solid #e2e8f0",
-          backgroundColor: "#ffffff",
+          border: "1px solid #e2e8f0", backgroundColor: "#ffffff",
           alignItems: isSidebarCollapsed ? "center" : "stretch"
         }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: isSidebarCollapsed ? "center" : "flex-start", gap: "14px", width: "100%" }}>
@@ -394,8 +487,7 @@ const Dashboard = ({ player, onLogout }) => {
                 style={{ 
                   ...getPhaseButtonStyle(activePhase === p.id, systemConfig?.current_phase_id === p.id), 
                   justifyContent: isSidebarCollapsed ? "center" : "flex-start",
-                  display: "flex",
-                  alignItems: "center"
+                  display: "flex", alignItems: "center"
                 }}
                 title={`Phase ${p.id}`}
               >
@@ -414,8 +506,7 @@ const Dashboard = ({ player, onLogout }) => {
             style={{ 
               ...getPhaseButtonStyle(activePhase === "bonus_questions", systemConfig?.current_phase_id === 1), 
               justifyContent: isSidebarCollapsed ? "center" : "flex-start",
-              display: "flex",
-              alignItems: "center"
+              display: "flex", alignItems: "center"
             }}
             title="Bonusfragen"
           >
@@ -478,11 +569,43 @@ const Dashboard = ({ player, onLogout }) => {
           <div style={{ display: "grid", gridTemplateColumns: "minmax(350px, 4.5fr) minmax(450px, 5.5fr)", gap: "30px", alignItems: "flex-start" }}>
             
             <section style={DASHBOARD_STYLES.whiteCard}>
-              <h3 style={{ ...DASHBOARD_STYLES.contentTitle, color: "#0f172a" }}>Aktuelle Rangliste</h3>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                <h3 style={{ ...DASHBOARD_STYLES.contentTitle, color: "#0f172a", margin: 0 }}>Aktuelle Rangliste</h3>
+                
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ fontSize: "0.85rem", fontWeight: "600", color: "#64748b" }}>Anzeigemodus:</span>
+                  <button 
+                    onClick={() => setShowDisplayName(!showDisplayName)}
+                    style={{
+                      padding: "6px 12px", borderRadius: "8px", border: "1px solid #cbd5e1",
+                      backgroundColor: "#ffffff", color: "#1e293b", fontSize: "0.85rem",
+                      fontWeight: "600", cursor: "pointer", display: "flex", alignItems: "center",
+                      gap: "6px", boxShadow: "0 1px 2px rgba(0,0,0,0.05)", transition: "all 0.15s ease"
+                    }}
+                  >
+                    <span>{showDisplayName ? "👤 Anzeigenamen" : "🆔 Realnamen"}</span>
+                    <span style={{ color: "#64748b" }}>🔄</span>
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ 
+                display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px", 
+                backgroundColor: "#f8fafc", padding: "12px 16px", borderRadius: "10px", 
+                marginBottom: "20px", border: "1px solid #e2e8f0"
+              }}>
+                {sortedTeams.map((t) => (
+                  <div key={t.name} style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
+                    <span style={{ fontWeight: "700", color: "#475569", fontSize: "0.85rem" }}>Team {t.name} ({t.symbol}):</span>
+                    <span style={{ color: "#2563eb", fontWeight: "800", fontSize: "1rem", marginTop: "2px" }}>{t.points} Punkte</span>
+                  </div>
+                ))}
+              </div>
+
               <table style={{ ...DASHBOARD_STYLES.table, width: "100%" }}>
                 <thead>
                   <tr style={DASHBOARD_STYLES.tableHeader}>
-                    <th style={{ ...DASHBOARD_STYLES.th, color: "#334155", width: "75px" }}>Platz</th>
+                    <th style={{ ...DASHBOARD_STYLES.th, color: "#334155", width: "95px" }}>Platz</th>
                     <th style={{ ...DASHBOARD_STYLES.th, color: "#334155" }}>Name</th>
                     <th style={{ ...DASHBOARD_STYLES.th, color: "#334155", textAlign: "right", width: "90px" }}>Punkte</th>
                   </tr>
@@ -490,16 +613,36 @@ const Dashboard = ({ player, onLogout }) => {
                 <tbody>
                   {ranking.map((entry, index) => {
                     const isMe = entry.id === localPlayer.id;
-                    const entryName = entry.display_name && entry.display_name !== "EMPTY" ? entry.display_name : entry.name;
+                    
+                    const entryName = showDisplayName 
+                      ? (entry.display_name && entry.display_name !== "EMPTY" ? entry.display_name : entry.name)
+                      : entry.name;
+                    
+                    const playerTeam = FORMATION_MAPPING[entry.id]?.team;
+                    const teamSymbol = playerTeam ? TEAM_SYMBOLS[playerTeam] : null;
                     
                     return (
                       <tr key={entry.id} style={{ ...(isMe ? DASHBOARD_STYLES.myRow : {}), height: "58px", borderBottom: "1px solid #e2e8f0" }}>
                         <td style={{ ...DASHBOARD_STYLES.td, color: "#0f172a", fontSize: "16px", fontWeight: "700" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                            <span>{index + 1}.</span>
-                            {entry.trend === "up" && <span style={{ color: "#22c55e", fontSize: "0.9rem" }} title="Verbessert">⬆️</span>}
-                            {entry.trend === "down" && <span style={{ color: "#ef4444", fontSize: "0.9rem" }} title="Verschlechtert">⬇️</span>}
-                            {entry.trend === "equal" && <span style={{ color: "#94a3b8", fontSize: "0.9rem" }} title="Gleich geblieben">➖</span>}
+                            <span>{entry.rank}.</span>
+                            
+                            {/* DYNAMISCHE TREND-ANZEIGE MIT EXAKTEN WERTEN */}
+                            {entry.trend === "up" && (
+                              <span style={{ color: "#22c55e", fontSize: "0.75rem", fontWeight: "700", marginLeft: "2px" }} title={`Verbessert um ${entry.matchdayTrend} Plätze`}>
+                                ▲ +{entry.matchdayTrend}
+                              </span>
+                            )}
+                            {entry.trend === "down" && (
+                              <span style={{ color: "#ef4444", fontSize: "0.75rem", fontWeight: "700", marginLeft: "2px" }} title={`Verschlechtert um ${Math.abs(entry.matchdayTrend)} Plätze`}>
+                                ▼ {entry.matchdayTrend}
+                              </span>
+                            )}
+                            {entry.trend === "equal" && (
+                              <span style={{ color: "#94a3b8", fontSize: "0.75rem", fontWeight: "700", marginLeft: "2px" }} title="Gleich geblieben">
+                                ▬ 0
+                              </span>
+                            )} 
                           </div>
                         </td>
                         <td style={{ ...DASHBOARD_STYLES.td, padding: "8px 12px" }}>
@@ -513,6 +656,12 @@ const Dashboard = ({ player, onLogout }) => {
                                 {entryName}
                               </span>
                               {entry.supported_country && <FlagIcon teamName={entry.supported_country} />}
+                              
+                              {teamSymbol && (
+                                <span style={{ fontSize: "0.85rem", color: "#64748b", fontWeight: "600", marginLeft: "2px" }}>
+                                  ({teamSymbol})
+                                </span>
+                              )}
                             </div>
                           </div>
                         </td>
@@ -527,8 +676,6 @@ const Dashboard = ({ player, onLogout }) => {
             </section>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "30px" }}>
-              
-              {/* 🔄 GEÄNDERT: Zeigt "Letzter Spieltag" nur an, wenn bereits ausgewertete Spiele vorhanden sind */}
               {hasFinishedMatches && (
                 <section>
                   <h3 style={{ ...DASHBOARD_STYLES.contentTitle, color: "#0f172a", marginBottom: "12px" }}>
@@ -548,7 +695,6 @@ const Dashboard = ({ player, onLogout }) => {
                   allMatches.filter(m => (m.matchday || m.spieltag || 1) === currentNextSpieltag).map(renderMatchTendencyCard)
                 )}
               </section>
-
             </div>
 
           </div>
@@ -559,9 +705,7 @@ const Dashboard = ({ player, onLogout }) => {
             ) : activePhase === "admin_results" ? (
               <AdminResultsPage phaseId={systemConfig?.current_phase_id} onUpdate={fetchDashboardData} />
             ) : activePhase === "profile" ? (
-              <ProfilePage 
-                player={localPlayer} onSave={handleProfileSave} onBack={() => setActivePhase("ranking")}
-              />
+              <ProfilePage player={localPlayer} onSave={handleProfileSave} onBack={() => setActivePhase("ranking")} />
             ) : activePhase === "points_analysis" ? (
               <PointsAnalysisPage userId={localPlayer.id} />
             ) : activePhase === "global_statistics" ? (
@@ -571,9 +715,7 @@ const Dashboard = ({ player, onLogout }) => {
             ) : activePhase === "support_feedback" ? (
               <SupportFeedbackPage playerId={localPlayer.id} playerName={displayName} isAdmin={localPlayer.is_admin} />
             ) : (
-              <TippsPage 
-                player={localPlayer} phaseId={activePhase} isAdmin={localPlayer.is_admin} 
-              />
+              <TippsPage player={localPlayer} phaseId={activePhase} isAdmin={localPlayer.is_admin} />
             )}
           </div>
         )}

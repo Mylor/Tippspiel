@@ -13,7 +13,6 @@ const StatisticsPage = ({ currentUserId }) => {
     async function fetchStatsData() {
       setLoading(true);
       try {
-        // Logik-Prüfung: supported_country wird hier korrekt selektiert und steht im player-Objekt bereit
         const [pointsRes, playersRes] = await Promise.all([
           supabase.from("user_points_detail").select("*"),
           supabase.from("player").select("id, name, display_name, name_color, jersey_number, supported_country")
@@ -47,11 +46,15 @@ const StatisticsPage = ({ currentUserId }) => {
         pointsPerPhase: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
         pointsPerMatchday: {},    // Alle Punkte (Matches + Prognosen), die diesem Tag zugeordnet sind
         prognosisPointsPerPhase: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }, // Prognosepunkte ohne expliziten Spieltag
-        rankHistory: {}           // Der Rang des Spielers am Ende dieses Spieltags
+        rankHistory: {},          // Der Rang des Spielers am Ende dieses Spieltags
+        currentRankReal: 1,       // NEU: Berechneter Echt-Rang unter Berücksichtigung von Gleichständen
+        currentRankMatchOnly: 1,  // NEU: Berechneter Tipp-Rang mit Gleichständen
+        currentRankPerfectHits: 1,// NEU: Berechneter Volltreffer-Rang mit Gleichständen
+        matchdayTrend: 0          // NEU: Platzveränderung zum letzten Spieltag (z.B. +2, -1, 0)
       };
     });
 
-    // Alle vorkommenden Spieltage aus den Daten ermitteln (sortiert, z.B. [1, 2, 3...])
+    // Alle vorkommenden Spieltage aus den Daten ermitteln
     const matchdays = [
       ...new Set(
         pointsData
@@ -68,7 +71,6 @@ const StatisticsPage = ({ currentUserId }) => {
       const pts = Number(row.points_total) || 0;
       playerStatsMap[pId].totalPoints += pts;
 
-      // Unabhängig von MATCH/PROGNOSIS: Wenn ein konkreter Spieltag gesetzt ist, dorthin buchen
       if (row.matchday !== undefined && row.matchday !== null && row.matchday !== "") {
         const mDay = row.matchday;
         if (!playerStatsMap[pId].pointsPerMatchday[mDay]) {
@@ -78,9 +80,8 @@ const StatisticsPage = ({ currentUserId }) => {
       }
 
       if (row.category === "MATCH") {
-        playerStatsMap[pId].matchPointsOnly += pts;
+        row.category === "MATCH" && (playerStatsMap[pId].matchPointsOnly += pts);
 
-        // Volltreffer ermitteln aus dem JSON-Breakdown
         if (row.breakdown && 
             row.breakdown.tip_a !== undefined && 
             row.breakdown.real_a !== undefined &&
@@ -91,7 +92,6 @@ const StatisticsPage = ({ currentUserId }) => {
       } else {
         playerStatsMap[pId].prognosisPointsOnly += pts;
         
-        // Wenn kein expliziter Spieltag da ist, aber eine Phase, separat für den Verlauf tracken
         if ((row.matchday === undefined || row.matchday === null || row.matchday === "") && row.phase_id) {
           if (playerStatsMap[pId].prognosisPointsPerPhase[row.phase_id] !== undefined) {
             playerStatsMap[pId].prognosisPointsPerPhase[row.phase_id] += pts;
@@ -106,30 +106,21 @@ const StatisticsPage = ({ currentUserId }) => {
 
     const allStatsList = Object.values(playerStatsMap);
 
-    // Richtwerte: Ab welchem Spieltag gelten Prognosen einer Phase als abgerechnet/sichtbar?
-    const phaseEndMatchday = {
-      1: 3, // Gruppenphasen-Prognosen zählen ab Spieltag 3 in den Verlauf
-      2: 4, // Achtelfinale
-      3: 5, // Viertelfinale
-      4: 6, // Halbfinale
-      5: 7  // Finale
-    };
+    const phaseEndMatchday = { 1: 3, 2: 4, 3: 5, 4: 6, 5: 7 };
 
-    // 3. Zeitverlauf & Spieltagssieger berechnen (On-the-fly Snapshot)
+    // 3. Zeitverlauf & Spieltagssieger berechnen (Inklusive Gleichstands-Logik für die Historie!)
     const matchdayWinners = {};
     
     matchdays.forEach(day => {
       const dayStandings = allStatsList.map(p => {
         let accumulatedPointsAtMilestone = 0;
 
-        // 1. Alle Punkte von Spieltag 1 bis zum aktuellen 'day' aufsummieren
         matchdays.forEach(d => {
           if (Number(d) <= Number(day)) {
             accumulatedPointsAtMilestone += (p.pointsPerMatchday[d] || 0);
           }
         });
 
-        // 2. Nur Prognosen dazuzählen, deren Phase an diesem Spieltag bereits abgeschlossen/gültig ist
         Object.keys(p.prognosisPointsPerPhase).forEach(phaseId => {
           const targetDay = phaseEndMatchday[phaseId] || 99;
           if (Number(day) >= targetDay) {
@@ -144,13 +135,19 @@ const StatisticsPage = ({ currentUserId }) => {
         };
       });
 
-      // Ränge für diesen Spieltag ermitteln (Nach Gesamtpunkten bis zu diesem Tag sortieren)
+      // Sortieren nach Gesamtpunkten an diesem Meilenstein
       dayStandings.sort((a, b) => b.totalAtMilestone - a.totalAtMilestone);
+      
+      // LOGIK-ANPASSUNG: Ränge mit Gleichstand vergeben (z.B. zwei 15. Plätze)
+      let currentHistRank = 1;
       dayStandings.forEach((entry, index) => {
-        playerStatsMap[entry.id].rankHistory[day] = index + 1;
+        if (index > 0 && entry.totalAtMilestone < dayStandings[index - 1].totalAtMilestone) {
+          currentHistRank = index + 1; // Rutscht auf den realen Listenplatz ab
+        }
+        playerStatsMap[entry.id].rankHistory[day] = currentHistRank;
       });
 
-      // Spieltagssieger ermitteln (Wer hat REIN AN DIESEM TAG am meisten gepunktet?)
+      // Spieltagssieger ermitteln
       dayStandings.sort((a, b) => b.pointsOnThisDay - a.pointsOnThisDay);
       const topScorer = dayStandings[0];
       matchdayWinners[day] = {
@@ -159,10 +156,47 @@ const StatisticsPage = ({ currentUserId }) => {
       };
     });
 
-    // 4. Spezial-Rankings sortieren
+    // 4. Spezial-Rankings sortieren & Ränge mit Gleichstand berechnen
     const rankingReal = [...allStatsList].sort((a, b) => b.totalPoints - a.totalPoints);
+    let currentRankReal = 1;
+    rankingReal.forEach((player, idx) => {
+      if (idx > 0 && player.totalPoints < rankingReal[idx - 1].totalPoints) {
+        currentRankReal = idx + 1;
+      }
+      player.currentRankReal = currentRankReal;
+    });
+
     const rankingMatchOnly = [...allStatsList].sort((a, b) => b.matchPointsOnly - a.matchPointsOnly);
+    let currentRankMatch = 1;
+    rankingMatchOnly.forEach((player, idx) => {
+      if (idx > 0 && player.matchPointsOnly < rankingMatchOnly[idx - 1].matchPointsOnly) {
+        currentRankMatch = idx + 1;
+      }
+      player.currentRankMatchOnly = currentRankMatch;
+    });
+
     const rankingPerfectHits = [...allStatsList].sort((a, b) => b.perfectHits - a.perfectHits);
+    let currentRankPerfect = 1;
+    rankingPerfectHits.forEach((player, idx) => {
+      if (idx > 0 && player.perfectHits < rankingPerfectHits[idx - 1].perfectHits) {
+        currentRankPerfect = idx + 1;
+      }
+      player.currentRankPerfectHits = currentRankPerfect;
+    });
+
+    // LOGIK-ERWEITERUNG: Trend zum vorherigen Spieltag ermitteln
+    const latestDay = matchdays[matchdays.length - 1];
+    const prevDay = matchdays[matchdays.length - 2];
+
+    allStatsList.forEach(p => {
+      if (latestDay && prevDay && p.rankHistory[latestDay] !== undefined && p.rankHistory[prevDay] !== undefined) {
+        // Differenz berechnen: Vorheriger Rang minus aktueller Rang.
+        // Wenn vorher Rang 15 und jetzt Rang 13 -> 15 - 13 = +2 Plätze gutgemacht!
+        p.matchdayTrend = p.rankHistory[prevDay] - p.rankHistory[latestDay];
+      } else {
+        p.matchdayTrend = 0; // Kein Trend verfügbar (z.B. am 1. Spieltag)
+      }
+    });
 
     // Phasen-Gewinner ermitteln
     const phaseWinners = {};
@@ -174,11 +208,10 @@ const StatisticsPage = ({ currentUserId }) => {
       };
     });
 
-    // 5. Daten für den angemeldeten Spieler isolieren
+    // 5. Daten für den angemeldeten Spieler isolieren (Ränge aus den neuen Variablen ziehen)
     const myStats = playerStatsMap[currentUserId] || null;
-    
-    const myRankActual = rankingReal.findIndex(p => Number(p.id) === Number(currentUserId)) + 1;
-    const myRankMatchOnly = rankingMatchOnly.findIndex(p => Number(p.id) === Number(currentUserId)) + 1;
+    const myRankActual = myStats ? myStats.currentRankReal : 1;
+    const myRankMatchOnly = myStats ? myStats.currentRankMatchOnly : 1;
 
     const avgPerfectHits = allStatsList.reduce((sum, p) => sum + p.perfectHits, 0) / allStatsList.length;
     const avgMatchPoints = allStatsList.reduce((sum, p) => sum + p.matchPointsOnly, 0) / allStatsList.length;
@@ -199,12 +232,34 @@ const StatisticsPage = ({ currentUserId }) => {
     };
   }, [pointsData, players, currentUserId]);
 
+  // --- VISUELLER HELPER FÜR TREND-PFEILE ---
+  const renderTrendArrow = (trend) => {
+    if (trend > 0) {
+      return (
+        <span style={{ color: "#16a34a", fontWeight: "700", fontSize: "0.85rem", display: "inline-flex", alignItems: "center", gap: "2px" }} title={`${trend} Plätze gutgemacht`}>
+          ▲ +{trend}
+        </span>
+      );
+    }
+    if (trend < 0) {
+      return (
+        <span style={{ color: "#dc2626", fontWeight: "700", fontSize: "0.85rem", display: "inline-flex", alignItems: "center", gap: "2px" }} title={`${Math.abs(trend)} Plätze verloren`}>
+          ▼ {trend}
+        </span>
+      );
+    }
+    return (
+      <span style={{ color: "#94a3b8", fontWeight: "500", fontSize: "0.85rem" }} title="Platzierung unverändert">
+        ▬ 0
+      </span>
+    );
+  };
+
   // --- VISUELLER HELPER FÜR SPIELER-PROFILEDETAILS ---
   const renderPlayerWithAssets = (player, isMe = false, badge = null) => {
     if (!player) return null;
     return (
       <div style={{ display: "inline-flex", alignItems: "center", gap: "10px", verticalAlign: "middle" }}>
-        {/* Validierung: Flagge rendern, falls supported_country existiert und kein Leerstring ist */}
         {player.supported_country && player.supported_country.trim() !== "" && (
           <FlagIcon teamName={player.supported_country} style={{ width: "20px", height: "auto", borderRadius: "2px", boxShadow: "0 1px 2px rgba(0,0,0,0.1)" }} />
         )}
@@ -327,8 +382,8 @@ const StatisticsPage = ({ currentUserId }) => {
       {/* ================= REITER 2: DIE THONSÄLE ================= */}
       {activeTab === "thron" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-          
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "24px" }}>
+            
             {/* Volltreffer Ranking */}
             <div style={cardStyle}>
               <h4 style={{ margin: "0 0 14px 0", color: "#1f2937" }}>🎯 Die Volltreffer-Könige (Exakte Ergebnisse)</h4>
@@ -341,10 +396,11 @@ const StatisticsPage = ({ currentUserId }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {stats.rankingPerfectHits.slice(0, 5).map((player, idx) => (
+                  {stats.rankingPerfectHits.slice(0, 5).map((player) => (
                     <tr key={player.id} style={getRowStyle(player.id)}>
-                      {/* Korrektur: color hinzugefügt, um weiße Zahlen zu verhindern */}
-                      <td style={{ padding: "8px", fontWeight: "700", verticalAlign: "middle", color: "#1f2937" }}>{idx + 1}.</td>
+                      <td style={{ padding: "8px", fontWeight: "700", verticalAlign: "middle", color: "#1f2937" }}>
+                        {player.currentRankPerfectHits}.
+                      </td>
                       <td style={{ padding: "8px", verticalAlign: "middle" }}>
                         {renderPlayerWithAssets(player)}
                       </td>
@@ -399,7 +455,6 @@ const StatisticsPage = ({ currentUserId }) => {
               </div>
             )}
           </div>
-
         </div>
       )}
 
@@ -422,15 +477,15 @@ const StatisticsPage = ({ currentUserId }) => {
                 </tr>
               </thead>
               <tbody>
-                {stats.rankingMatchOnly.map((player, idx) => {
-                  const realRank = stats.rankingReal.findIndex(p => p.id === player.id) + 1;
-                  const diff = realRank - (idx + 1);
+                {stats.rankingMatchOnly.map((player) => {
+                  const realRank = player.currentRankReal;
+                  const matchRank = player.currentRankMatchOnly;
+                  const diff = realRank - matchRank;
                   const isMe = Number(player.id) === Number(currentUserId);
 
                   return (
                     <tr key={player.id} style={getRowStyle(player.id)}>
-                      {/* Korrektur: color hinzugefügt, um weiße Zahlen zu verhindern */}
-                      <td style={{ ...tdStyle, fontWeight: "700", color: "#1f2937" }}>{idx + 1}.</td>
+                      <td style={{ ...tdStyle, fontWeight: "700", color: "#1f2937" }}>{matchRank}.</td>
                       <td style={tdStyle}>
                         {renderPlayerWithAssets(player, isMe)}
                       </td>
@@ -439,9 +494,9 @@ const StatisticsPage = ({ currentUserId }) => {
                       </td>
                       <td style={{ ...tdStyle, textAlign: "right", fontWeight: "500", color: "#334155" }}>
                         {realRank}. {diff > 0 ? (
-                          <span style={{ color: "#16a34a", fontSize: "0.8rem" }}>↑+{diff}</span>
+                          <span style={{ color: "#16a34a", fontSize: "0.8rem", fontWeight: "600" }}>↑+{diff}</span>
                         ) : diff < 0 ? (
-                          <span style={{ color: "#dc2626", fontSize: "0.8rem" }}>↓{diff}</span>
+                          <span style={{ color: "#dc2626", fontSize: "0.8rem", fontWeight: "600" }}>↓{diff}</span>
                         ) : (
                           <span style={{ color: "#94a3b8", fontSize: "0.8rem" }}>=</span>
                         )}
@@ -459,7 +514,7 @@ const StatisticsPage = ({ currentUserId }) => {
       {activeTab === "trends" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
           
-          {/* Platzierungs-Verlauf als interaktive Matrix-Tabelle */}
+          {/* Platzierungs-Verlauf Matrix-Tabelle */}
           <div style={cardStyle}>
             <h4 style={{ margin: "0 0 6px 0", color: "#1f2937" }}>📈 Platzierungs-Verlauf nach Spieltagen</h4>
             <p style={{ margin: "0 0 16px 0", fontSize: "0.85rem", color: "#64748b" }}>Hier siehst du, wie sich die Ränge der Mitspieler nach jedem abgeschlossenen Spieltag verschoben haben.</p>
@@ -476,14 +531,21 @@ const StatisticsPage = ({ currentUserId }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {stats.rankingReal.map((player, idx) => {
+                  {stats.rankingReal.map((player) => {
                     const isMe = Number(player.id) === Number(currentUserId);
                     return (
                       <tr key={player.id} style={getRowStyle(player.id)}>
-                        {/* Korrektur: color hinzugefügt, um weiße Zahlen zu verhindern */}
-                        <td style={{ ...tdStyle, fontWeight: "700", color: "#1f2937" }}>{idx + 1}.</td>
+                        <td style={{ ...tdStyle, fontWeight: "700", color: "#1f2937" }}>
+                          {player.currentRankReal}.
+                        </td>
                         <td style={tdStyle}>
-                          {renderPlayerWithAssets(player, isMe)}
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", gap: "12px" }}>
+                            {renderPlayerWithAssets(player, isMe)}
+                            {/* Rendert den grünen/roten Pfeil mitsamt der Platzzahl rechts neben dem Profil */}
+                            <div style={{ minWidth: "45px", textAlign: "right" }}>
+                              {renderTrendArrow(player.matchdayTrend)}
+                            </div>
+                          </div>
                         </td>
                         {stats.matchdays.map(day => {
                           const historyRank = player.rankHistory[day] || "-";
@@ -503,7 +565,7 @@ const StatisticsPage = ({ currentUserId }) => {
             </div>
           </div>
 
-          {/* Punkte-Verteilung (Balkendiagramm) */}
+          {/* Punkte-Verteilung */}
           <div style={cardStyle}>
             <h4 style={{ margin: "0 0 16px 0", color: "#1f2937" }}>📊 Punkte-Vergleich aller Mitspieler</h4>
             <p style={{ margin: "0 0 20px 0", fontSize: "0.85rem", color: "#64748b" }}>Hier siehst du die Verteilung der Match-Punkte (Blau) vs. Prognose-Punkte (Lila) im direkten, visuellen Stapel-Vergleich.</p>
