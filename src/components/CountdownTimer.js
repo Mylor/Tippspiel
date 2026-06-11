@@ -11,7 +11,7 @@ const CountdownTimer = ({ targetDate }) => {
       
       // Wenn die Zeit abgelaufen ist
       if (difference <= 0) {
-        return 'Zeit ist abgelaufen';
+        return 'Gesperrt';
       }
 
       const days = Math.floor(difference / (1000 * 60 * 60 * 24));
@@ -38,7 +38,7 @@ const CountdownTimer = ({ targetDate }) => {
 
   if (!targetDate) return null;
 
-  const isExpired = timeLeft === 'Zeit ist abgelaufen';
+  const isExpired = timeLeft === 'Gesperrt';
 
   return (
     <span style={{

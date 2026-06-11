@@ -390,7 +390,7 @@ const Dashboard = ({ player, onLogout }) => {
     .sort((a, b) => b.points - a.points);
 
   return (
-    <div style={{ display: "flex", height: "100vh", width: "100vw", overflow: "hidden", margin: 0, padding: 0, backgroundColor: "#f8fafc" }}>
+    <div style={{ display: "flex", height: "100vh", width: "100vw", overflow: "hidden", margin: 0, padding: 0, backgroundColor: "#f8fcfb" }}>
       
       <aside style={{ 
         ...DASHBOARD_STYLES.sidebar, 
