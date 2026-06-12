@@ -5,7 +5,7 @@ import { getBestThirds } from "../Utils/calcTable";
 // --- KONSTANTEN & STYLES ---
 import { 
   UI_STYLES, KO_STRUCTURE, ROUND_NAMES, 
-  PHASE_SPACING, PHASE_HEIGHTS, 
+  PHASE_SPACING, PHASE_HEIGHTS, TIPPS_PAGE_STYLES
 } from '../Utils/uiConstants';
 
 // --- LOGIK-FUNKTIONEN ---
@@ -452,25 +452,21 @@ function TippsPage({ player, phaseId }) {
   if (!player || !phaseId) return <div style={{ padding: "20px" }}>Lade Benutzerdaten...</div>;
 
   return (
-    <div style={{ padding: "20px", width: "max-content", minWidth: "100%", position: "relative" }}>
+    <div style={TIPPS_PAGE_STYLES.container}>
       
       {showContent && (
-        <div style={{ display: "flex", justifyContent: "flex-start", alignItems: "center", marginBottom: "20px", padding: "10px", backgroundColor: "#f8fafc", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
+        <div style={TIPPS_PAGE_STYLES.headerBar}>
           <div>
-            <h2 style={{ margin: 0, color: "#0f172a", marginRight: "30px" }}>Tippabgabe – Phase {phaseId}</h2>
+            <h2 style={TIPPS_PAGE_STYLES.headerTitle}>Tippabgabe – Phase {phaseId}</h2>
           </div>
           
-          <div style={{ display: "flex", alignItems: "center", gap: "32px" }}>
+          <div style={TIPPS_PAGE_STYLES.statusWrapper}>
             {isPlayerSubmitted ? (
-              <div style={{ padding: "8px 16px", borderRadius: "8px", backgroundColor: "#dcfce7", color: "#15803d", fontWeight: "700", fontSize: "14px", border: "1px solid #bbf7d0" }}>
-                ✓ Tipps erfolgreich abgegeben
-              </div>
+              <div style={TIPPS_PAGE_STYLES.bannerSuccess}>✓ Tipps erfolgreich abgegeben</div>
             ) : phase?.is_submitted || systemConfig?.tips_locked_global ? (
-              <div style={{ padding: "8px 16px", borderRadius: "8px", backgroundColor: "#fee2e2", color: "#b91c1c", fontWeight: "700", fontSize: "14px", border: "1px solid #fca5a5" }}>
-                🔒 Phase gesperrt
-              </div>
+              <div style={TIPPS_PAGE_STYLES.bannerLocked}>🔒 Phase gesperrt</div>
             ) : (phase?.id === 5 ? completionStatus.currentM !== completionStatus.targetM : !completionStatus.isReady) ? (
-              <div style={{ color: "#dc2626", fontWeight: "600", fontSize: "13px", padding: "8px 12px", border: "1px dashed #fca5a5", borderRadius: "8px", backgroundColor: "#fff5f5" }}>
+              <div style={TIPPS_PAGE_STYLES.bannerError}>
                 ❌ Abgabe gesperrt: {
                   completionStatus.groupRanksMissing ? "Es fehlen noch Stichwahlen in den Tabellen!" :
                   completionStatus.thirdsRanksMissing ? "Kritischer Gleichstand bei Gruppendritten (Platz 8 vs 9) benötigt Stichwahl!" :
@@ -480,10 +476,7 @@ function TippsPage({ player, phaseId }) {
                 }
               </div>
             ) : (
-              <button 
-                onClick={() => setShowConfirmModal(true)}
-                style={{ padding: "10px 20px", borderRadius: "8px", border: "none", backgroundColor: "#22c55e", color: "white", cursor: "pointer", fontWeight: "700", fontSize: "14px" }}
-              >
+              <button onClick={() => setShowConfirmModal(true)} style={TIPPS_PAGE_STYLES.submitButton}>
                 🚀 Tipps final abgeben
               </button>
             )}
@@ -492,33 +485,25 @@ function TippsPage({ player, phaseId }) {
       )}
 
       {showContent ? (
-        <div style={{ display: "flex", flexDirection: "row", gap: "40px", alignItems: "flex-start", width: "max-content", minWidth: "100%", paddingRight: "40px" }}>
+        <div style={TIPPS_PAGE_STYLES.contentGrid}>
           {numericPhaseId === 1 && (
-            <div style={{ flexShrink: 0, width: "fit-content" }}>
+            <div style={TIPPS_PAGE_STYLES.columnWidth}>
               <div ref={groupRef}>
-                <div style={{ padding: "10px", marginBottom: "20px" }}>
-                  <h3 style={{ color: "#0f172a", fontSize: "1.3rem", fontWeight: "700", margin: "0 0 16px 0" }}>Gruppenphase</h3>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "30px", marginBottom: "40px", maxWidth: "1100px" }}>
+                <div style={TIPPS_PAGE_STYLES.groupPadding}>
+                  <h3 style={TIPPS_PAGE_STYLES.sectionTitle}>Gruppenphase</h3>
+                  <div style={TIPPS_PAGE_STYLES.groupGrid}>
                     {Object.keys(grouped).sort().map(name => {
                       const groupMatches = grouped[name] || [];
-                      // KORREKTUR: Ermittelt separat den lokalen Save-Status für diese eine Gruppe aus der Datenbank
                       const isGroupSaved = groupMatches.length === 6 && groupMatches.every(m => dbTips[m.id] !== undefined);
 
                       return (
-                        <div key={name} style={{ position: 'relative' }}>
+                        <div key={name} style={TIPPS_PAGE_STYLES.groupFrame}>
                           <GroupTable 
-                            groupName={name} 
-                            matches={groupMatches} 
-                            tips={tips} 
-                            dbTips={dbTips}
+                            groupName={name} matches={groupMatches} tips={tips} dbTips={dbTips}
                             tableData={allGroupsArray.find(g => g.id === name)?.teams || []} 
-                            onSaveTip={saveTip} 
-                            isSubmitted={isReadOnly}
-                            isGroupSaved={isGroupSaved} 
-                            manualRanks={manualRanks} 
-                            onSaveManualRank={saveManualRank} 
-                            onDeleteTips={isReadOnly ? null : resetGroup} 
-                            groupStatus={groupStatus[name]} 
+                            onSaveTip={saveTip} isSubmitted={isReadOnly} isGroupSaved={isGroupSaved} 
+                            manualRanks={manualRanks} onSaveManualRank={saveManualRank} 
+                            onDeleteTips={isReadOnly ? null : resetGroup} groupStatus={groupStatus[name]} 
                             onSaveGroup={saveGroup}          
                           />
                         </div>
@@ -527,16 +512,12 @@ function TippsPage({ player, phaseId }) {
                   </div>
                 </div>
 
-                {/* Die Tabelle der besten Dritten baut sich live auf */}
                 {allGroupsSaved && (
-                  <div style={{ padding: "10px" }}>
-                    <h3 style={{ color: "#0f172a", fontSize: "1.3rem", fontWeight: "700", margin: "0 0 16px 0" }}>Vergleich der Gruppendritten</h3>
+                  <div style={TIPPS_PAGE_STYLES.thirdsPadding}>
+                    <h3 style={TIPPS_PAGE_STYLES.sectionTitle}>Vergleich der Gruppendritten</h3>
                     <BestThirdsTable 
-                      teams={bestThirds} 
-                      manualRanks={manualRanks} 
-                      onSaveManualRank={saveManualRank} 
-                      isSubmitted={isReadOnly} 
-                      isGroupPhaseComplete={allGroupsSaved} 
+                      teams={bestThirds} manualRanks={manualRanks} onSaveManualRank={saveManualRank} 
+                      isSubmitted={isReadOnly} isGroupPhaseComplete={allGroupsSaved} 
                     />
                   </div>
                 )}
@@ -544,24 +525,21 @@ function TippsPage({ player, phaseId }) {
             </div>
           )}
 
-          <div style={{ flexShrink: 0, width: "fit-content" }}>
-            <div style={{ padding: "10px" }}>
-              <h3 style={{ marginLeft: "20px", color: "#0f172a", fontSize: "1.3rem", fontWeight: "700" }}>KO-Phase</h3>
+          <div style={TIPPS_PAGE_STYLES.columnWidth}>
+            <div style={TIPPS_PAGE_STYLES.koPadding}>
+              <h3 style={TIPPS_PAGE_STYLES.sectionTitleKO}>KO-Phase</h3>
               
-              {/* KORREKTUR: Hinweistext prüft nun, ob alle Gruppen gespeichert wurden */}
               {numericPhaseId === 1 && !allGroupsSaved && (
-                <div style={{ marginLeft: "20px", marginBottom: "15px", color: "#eab308", fontWeight: "600", fontSize: "14px", backgroundColor: "#fef08a", padding: "8px 12px", borderRadius: "8px", border: "1px solid #fde047", maxWidth: "500px" }}>
+                <div style={TIPPS_PAGE_STYLES.koWarning}>
                   ⚠️ Der KO-Baum wird erst freigeschaltet, wenn alle Gruppen vollständig gespeichert wurden.
                 </div>
               )}
 
-              <div style={{ display: "flex", flexDirection: "row", alignItems: "flex-start" }}>
+              <div style={TIPPS_PAGE_STYLES.koFlex}>
                 <KOBracket 
                   koByRound={koByRound} tips={tips} treeHeight={treeHeight} roundNames={ROUND_NAMES} 
                   phase={{ ...phase, is_submitted: isReadOnly }} 
                   getTopPosition={(rIdx, mIdx) => getTopPosition(rIdx, mIdx, treeHeight, currentSpacing) - topOffset} 
-                  
-                  // KORREKTUR: Teams werden erst berechnet, wenn alle Gruppen in der DB festgeschrieben sind
                   getTeamFromPrevious={(rIdx, mIdx, side) => {
                     if (numericPhaseId === 1 && !allGroupsSaved) return null;
                     if (numericPhaseId === 1 && rIdx === 0) {
@@ -575,34 +553,31 @@ function TippsPage({ player, phaseId }) {
                     if (numericPhaseId === 1 && !allGroupsSaved) return null;
                     return resolveSlot(slot, tournamentContext);
                   }} 
-                  
                   saveTip={isReadOnly || (numericPhaseId === 1 && !allGroupsSaved) ? null : saveTip} 
-                  deleteKORound={isReadOnly ? null : deleteKORound} 
-                  KO_STRUCTURE={KO_STRUCTURE} isAdmin={false} 
+                  deleteKORound={isReadOnly ? null : deleteKORound} KO_STRUCTURE={KO_STRUCTURE} isAdmin={false} 
                 />
                 {numericPhaseId === 5 && (
                   <Phase5Matrix 
-                    koByRound={koByRound} tips={tips} isReadOnly={isReadOnly} resetOption={resetOption}
-                    saveTip={saveTip}
+                    koByRound={koByRound} tips={tips} isReadOnly={isReadOnly} resetOption={resetOption} saveTip={saveTip}
                   />
                 )}
               </div>
             </div>
           </div>
         </div>
-      ) : <div style={{ padding: "100px", textAlign: "center", color: "#94a3b8" }}>Die Tippabgabe ist aktuell gesperrt.</div>}
+      ) : <div style={TIPPS_PAGE_STYLES.lockedGlobal}>Die Tippabgabe ist aktuell gesperrt.</div>}
 
       {showConfirmModal && (
-        <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", backgroundColor: "rgba(15, 23, 42, 0.6)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 10000, backdropFilter: "blur(4px)" }}>
-          <div style={{ backgroundColor: "white", padding: "30px", borderRadius: "16px", width: "420px", textAlign: "center" }}>
-            <div style={{ fontSize: "40px", marginBottom: "12px" }}>🚀</div>
-            <h3 style={{ margin: "0 0 10px 0", color: "#0f172a", fontSize: "18px", fontWeight: "700" }}>Tipps final abgeben?</h3>
-            <p style={{ margin: "0 0 24px 0", color: "#475569", fontSize: "14px", lineHeight: "1.5" }}>
+        <div style={TIPPS_PAGE_STYLES.modalOverlay}>
+          <div style={TIPPS_PAGE_STYLES.modalContent}>
+            <div style={TIPPS_PAGE_STYLES.modalEmoji}>🚀</div>
+            <h3 style={TIPPS_PAGE_STYLES.modalTitle}>Tipps final abgeben?</h3>
+            <p style={TIPPS_PAGE_STYLES.modalText}>
               Bist du dir absolut sicher? Nach der Abgabe kannst du deine Tipps für diese Phase **nicht mehr ändern**.
             </p>
-            <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
-              <button onClick={() => setShowConfirmModal(false)} style={{ padding: "10px 18px", borderRadius: "8px", border: "1px solid #cbd5e1", backgroundColor: "white", color: "#475569", cursor: "pointer", fontWeight: "600", fontSize: "13px" }}>Abbrechen</button>
-              <button onClick={submitTipsFinal} style={{ padding: "10px 18px", borderRadius: "8px", border: "none", backgroundColor: "#22c55e", color: "white", cursor: "pointer", fontWeight: "600", fontSize: "13px" }}>Ja, jetzt abgeben</button>
+            <div style={TIPPS_PAGE_STYLES.modalActions}>
+              <button onClick={() => setShowConfirmModal(false)} style={TIPPS_PAGE_STYLES.modalBtnCancel}>Abbrechen</button>
+              <button onClick={submitTipsFinal} style={TIPPS_PAGE_STYLES.modalBtnConfirm}>Ja, jetzt abgeben</button>
             </div>
           </div>
         </div>

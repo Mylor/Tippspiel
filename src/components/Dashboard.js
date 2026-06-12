@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabaseClient";
 
 // --- IMPORT CONSTANTS & STYLES ---
@@ -19,6 +19,7 @@ import BonusQuestions from "./BonusQuestions";
 import SupportFeedbackPage from "./SupportFeedbackPage"; 
 import ProfilePage from "./Profile"; 
 import StatisticsPage from "./StatisticsPage";
+import MatchTendencyCard from "./MatchTendencyCard";
 
 // --- ZENTRALE DEADLINE KONFIGURATION ---
 const PHASE_DEADLINES = {
@@ -81,6 +82,7 @@ const Dashboard = ({ player, onLogout }) => {
         m.goals_a_real !== undefined && m.goals_b_real !== undefined &&
         m.goals_a_real !== '' && m.goals_b_real !== ''
       );
+      
       const lastEvaluatedMatchday = finishedMatches.length > 0 
         ? Math.max(...finishedMatches.map(m => m.matchday || m.spieltag || 1)) 
         : 0;
@@ -184,7 +186,7 @@ const Dashboard = ({ player, onLogout }) => {
     } catch (error) {
       console.error("Fehler beim Laden der Dashboard-Daten:", error);
     } finally {
-      loading && setLoading(false);
+      if (loading) setLoading(false);
     }
   }
 
@@ -206,221 +208,61 @@ const Dashboard = ({ player, onLogout }) => {
     }
   };
 
-  if (loading) return <div style={{ padding: "20px", color: "#0f172a" }}>Dashboard wird geladen...</div>;
+  // --- MEMOIZED CALCULATIONS FOR PERFORMANCE ---
+  const matchdayInfo = useMemo(() => {
+    const finished = allMatches.filter(m => 
+      m.goals_a_real !== null && m.goals_b_real !== null &&
+      m.goals_a_real !== undefined && m.goals_b_real !== undefined &&
+      m.goals_a_real !== '' && m.goals_b_real !== ''
+    );
+    const hasFinished = finished.length > 0;
+    const last = hasFinished ? Math.max(...finished.map(m => m.matchday || m.spieltag || 1)) : 0;
+    return {
+      hasFinishedMatches: hasFinished,
+      currentLastSpieltag: last,
+      currentNextSpieltag: hasFinished ? last + 1 : 1,
+      lastMatches: allMatches.filter(m => (m.matchday || m.spieltag || 1) === last),
+      nextMatches: allMatches.filter(m => (m.matchday || m.spieltag || 1) === (hasFinished ? last + 1 : 1))
+    };
+  }, [allMatches]);
+
+  const sortedTeams = useMemo(() => {
+    const teamScores = { Alpha: 0, Beta: 0, Gamma: 0 };
+    ranking.forEach(entry => {
+      const teamName = FORMATION_MAPPING[entry.id]?.team;
+      if (teamName && teamScores[teamName] !== undefined) {
+        teamScores[teamName] += entry.points;
+      }
+    });
+    return Object.keys(teamScores)
+      .map(key => ({
+        name: key,
+        points: parseFloat(teamScores[key].toFixed(1)),
+        symbol: TEAM_SYMBOLS[key] || ""
+      }))
+      .sort((a, b) => b.points - a.points);
+  }, [ranking]);
+
+  if (loading) return <div style={DASHBOARD_STYLES.loadingContainer}>Dashboard wird geladen...</div>;
 
   const displayName = localPlayer.display_name && localPlayer.display_name !== "EMPTY" ? localPlayer.display_name : localPlayer.name;
-
-  // Ermittle dynamisch das eigene Team für das Highlighting oben
   const myTeamName = FORMATION_MAPPING[localPlayer.id]?.team;
 
-  const renderMatchTendencyCard = (m) => {
-    const matchTips = allCommunityTips.filter(t => Number(t.match_id) === Number(m.id));
-    const totalTips = matchTips.length;
-    
-    const winA = matchTips.filter(t => Number(t.goals_a) > Number(t.goals_b)).length;
-    const draw = matchTips.filter(t => Number(t.goals_a) === Number(t.goals_b)).length;
-    const winB = matchTips.filter(t => Number(t.goals_a) < Number(t.goals_b)).length;
-
-    const pctA = totalTips > 0 ? (winA / totalTips) * 100 : 0;
-    const pctDraw = totalTips > 0 ? (draw / totalTips) * 100 : 0;
-    const pctB = totalTips > 0 ? (winB / totalTips) * 100 : 0;
-
-    let expectedGoalsA = "0,00";
-    let expectedGoalsB = "0,00";
-    if (totalTips > 0) {
-      const totalGoalsA = matchTips.reduce((sum, t) => sum + Number(t.goals_a || 0), 0);
-      const totalGoalsB = matchTips.reduce((sum, t) => sum + Number(t.goals_b || 0), 0);
-      expectedGoalsA = (totalGoalsA / totalTips).toFixed(2).replace(".", ",");
-      expectedGoalsB = (totalGoalsB / totalTips).toFixed(2).replace(".", ",");
-    }
-
-    const myTip = matchTips.find(t => Number(t.player_id) === Number(localPlayer.id));
-    const hasRealResult = m.goals_a_real !== null && m.goals_b_real !== null && m.goals_a_real !== undefined && m.goals_b_real !== undefined && m.goals_a_real !== '';
-
-    let correctTendency = null;
-    if (hasRealResult) {
-      const realA = Number(m.goals_a_real);
-      const realB = Number(m.goals_b_real);
-      if (realA > realB) correctTendency = "A";
-      else if (realA < realB) correctTendency = "B";
-      else correctTendency = "Draw";
-    }
-
-    // --- NEU: DYNAMISCHE ERGEBNIS-FARBBERECHNUNG ---
-    let tipColor = "#2563eb"; // Standard-Blau bei keinem Ergebnis
-    if (hasRealResult && myTip) {
-      const realA = Number(m.goals_a_real);
-      const realB = Number(m.goals_b_real);
-      const tipA = Number(myTip.goals_a);
-      const tipB = Number(myTip.goals_b);
-
-      if (realA === tipA && realB === tipB) {
-        tipColor = "#eab308"; // Gold bei Volltreffer
-      } else {
-        const tipTendency = tipA > tipB ? "A" : tipA < tipB ? "B" : "Draw";
-        if (tipTendency === correctTendency) {
-          tipColor = "#2563eb"; // Blau bei richtiger Tendenz
-        } else {
-          tipColor = "#ef4444"; // Rot bei falschem Sieger
-        }
-      }
-    }
-
-    return (
-      <div key={m.id} style={{
-        backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px",
-        padding: "16px", marginBottom: "14px", boxShadow: "0 1px 3px rgba(0,0,0,0.05)"
-      }}>
-        
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "12px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-            
-            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span style={{ 
-                backgroundColor: '#e2e8f0', color: '#475569', fontWeight: '700', fontSize: '0.65rem',
-                padding: '2px 5px', borderRadius: '4px', display: 'inline-flex',
-                alignItems: 'center', justifyContent: 'center', flexShrink: 0, lineHeight: '1'
-              }}>
-                {m.match_no || m.match_order}
-              </span>
-              <span style={{ fontSize: "0.85rem", color: "#64748b", fontWeight: "600" }}>Gruppe {m.group_name}</span>
-            </div>
-
-            <span style={{ color: "#cbd5e1" }}>|</span>
-
-            <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.95rem", fontWeight: "700", color: "#0f172a" }}>
-              <FlagIcon teamName={m.team_a} />
-              <span>{m.team_a}</span>
-              <span style={{ color: "#94a3b8", fontWeight: "500", fontSize: "0.85rem", margin: "0 2px" }}>vs.</span>
-              <FlagIcon teamName={m.team_b} />
-              <span>{m.team_b}</span>
-            </div>
-
-            {totalTips > 0 && (
-              <>
-                <span style={{ color: "#cbd5e1" }}>|</span>
-                <span style={{ fontSize: "0.85rem", color: "#475569", backgroundColor: "#f1f5f9", padding: "2px 8px", borderRadius: "6px", fontWeight: "500" }}>
-                  erwartete Tore: <strong style={{ color: "#0f172a" }}>{expectedGoalsA} : {expectedGoalsB}</strong>
-                </span>
-              </>
-            )}
-          </div>
-
-          {hasRealResult && (
-            <span style={{ backgroundColor: "#10b981", color: "white", padding: "3px 10px", borderRadius: "6px", fontSize: "0.8rem", fontWeight: "700" }}>
-              Endergebnis: {m.goals_a_real} : {m.goals_b_real}
-            </span>
-          )}
-        </div>
-
-        <div style={{ display: "flex", height: "22px", width: "100%", borderRadius: "6px", overflow: "hidden", backgroundColor: "#f1f5f9", marginBottom: "12px" }}>
-          {!isMyPhase1Submitted ? (
-            <div style={{ width: "100%", backgroundColor: "#e2e8f0", color: "#64748b", fontSize: "0.75rem", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "600", fontStyle: "italic", gap: "4px" }}>
-              🔒 Tendenzen der Tipper erst sichtbar nach deiner Abgabe von Phase 1
-            </div>
-          ) : totalTips === 0 ? (
-            <div style={{ width: "100%", backgroundColor: "#cbd5e1", color: "#475569", fontSize: "0.75rem", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              Keine Tipps abgegeben
-            </div>
-          ) : (
-            <>
-              {winA > 0 && (
-                <div style={{ 
-                  width: `${pctA}%`, backgroundColor: "#22c55e", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: "0.75rem", fontWeight: "700",
-                  opacity: hasRealResult ? (correctTendency === "A" ? 1 : 0.25) : 1,
-                  boxShadow: hasRealResult && correctTendency === "A" ? "inset 0 0 0 2px #166534" : "none",
-                  transition: "opacity 0.2s ease"
-                }} title={`${m.team_a} gewinnt: ${winA} Tipps`}>
-                  {winA}
-                </div>
-              )}
-              {draw > 0 && (
-                <div style={{ 
-                  width: `${pctDraw}%`, backgroundColor: "#94a3b8", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: "0.75rem", fontWeight: "700",
-                  opacity: hasRealResult ? (correctTendency === "Draw" ? 1 : 0.25) : 1,
-                  boxShadow: hasRealResult && correctTendency === "Draw" ? "inset 0 0 0 2px #334155" : "none",
-                  transition: "opacity 0.2s ease"
-                }} title={`Unentschieden: ${draw} Tipps`}>
-                  {draw}
-                </div>
-              )}
-              {winB > 0 && (
-                <div style={{ 
-                  width: `${pctB}%`, 
-                  backgroundColor: "#8b5cf6", // NEU: Lila statt Blau im Balken
-                  display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: "0.75rem", fontWeight: "700",
-                  opacity: hasRealResult ? (correctTendency === "B" ? 1 : 0.25) : 1,
-                  boxShadow: hasRealResult && correctTendency === "B" ? "inset 0 0 0 2px #6d28d9" : "none", // Angepasstes dunkleres Lila
-                  transition: "opacity 0.2s ease"
-                }} title={`${m.team_b} gewinnt: ${winB} Tipps`}>
-                  {winB}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.85rem", flexWrap: "wrap", gap: "10px" }}>
-          <div style={{ fontWeight: "600", color: "#334155" }}>
-            Dein Tipp: <span style={{ color: tipColor, fontWeight: "800" }}>{myTip ? `${myTip.goals_a} : ${myTip.goals_b}` : "—"}</span>
-          </div>
-          {isMyPhase1Submitted && (
-            <div style={{ display: "flex", gap: "12px", fontSize: "0.75rem", color: "#64748b", fontWeight: "600" }}>
-              <span style={{ display: "flex", alignItems: "center", gap: "4px" }}><span style={{ display: "inline-block", width: "8px", height: "8px", backgroundColor: "#22c55e", borderRadius: "50%" }}></span>{m.team_a} gewinnt</span>
-              <span style={{ display: "flex", alignItems: "center", gap: "4px" }}><span style={{ display: "inline-block", width: "8px", height: "8px", backgroundColor: "#94a3b8", borderRadius: "50%" }}></span>Unentschieden</span>
-              <span style={{ display: "flex", alignItems: "center", gap: "4px" }}><span style={{ display: "inline-block", width: "8px", height: "8px", backgroundColor: "#8b5cf6", borderRadius: "50%" }}></span>{m.team_b} gewinnt</span> {/* NEU: Lila Punkt */}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  const finishedMatchesList = allMatches.filter(m => 
-    m.goals_a_real !== null && m.goals_b_real !== null &&
-    m.goals_a_real !== undefined && m.goals_b_real !== undefined &&
-    m.goals_a_real !== '' && m.goals_b_real !== ''
-  );
-
-  const hasFinishedMatches = finishedMatchesList.length > 0;
-  const currentLastSpieltag = hasFinishedMatches ? Math.max(...finishedMatchesList.map(m => m.matchday || m.spieltag || 1)) : 0;
-  const currentNextSpieltag = hasFinishedMatches ? currentLastSpieltag + 1 : 1;
-
-  const teamScores = { Alpha: 0, Beta: 0, Gamma: 0 };
-  ranking.forEach(entry => {
-    const teamName = FORMATION_MAPPING[entry.id]?.team;
-    if (teamName && teamScores[teamName] !== undefined) {
-      teamScores[teamName] += entry.points;
-    }
-  });
-
-  const sortedTeams = Object.keys(teamScores)
-    .map(key => ({
-      name: key,
-      points: parseFloat(teamScores[key].toFixed(1)),
-      symbol: TEAM_SYMBOLS[key] || ""
-    }))
-    .sort((a, b) => b.points - a.points);
-
   return (
-    <div style={{ display: "flex", height: "100vh", width: "100vw", overflow: "hidden", margin: 0, padding: 0, backgroundColor: "#f8fcfb" }}>
+    <div style={DASHBOARD_STYLES.dashboardWrapper}>
       
+      {/* SIDEBAR ASIDE */}
       <aside style={{ 
         ...DASHBOARD_STYLES.sidebar, 
         width: isSidebarCollapsed ? "80px" : "280px", 
         minWidth: isSidebarCollapsed ? "80px" : "280px",
-        height: "100%", position: "relative", zIndex: 10,
-        display: "flex", flexDirection: "column", overflowY: "auto", overflowX: "hidden",
-        padding: isSidebarCollapsed ? "16px 8px" : "20px 16px", margin: 0, boxSizing: "border-box",
-        transition: "width 0.3s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.3s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s ease",
-        borderRight: "1px solid #e2e8f0"
+        padding: isSidebarCollapsed ? "16px 8px" : "20px 16px"
       }}>
         <button 
           onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
           style={{
-            alignSelf: isSidebarCollapsed ? "center" : "flex-end", backgroundColor: "#e2e8f0", color: "#0f172a",
-            border: "none", borderRadius: "6px", padding: "6px 10px", cursor: "pointer", fontSize: "14px",
-            fontWeight: "bold", marginBottom: "12px", display: "flex", alignItems: "center", justifyContent: "center"
+            ...DASHBOARD_STYLES.collapseButton,
+            alignSelf: isSidebarCollapsed ? "center" : "flex-end"
           }}
           title={isSidebarCollapsed ? "Sidebar ausklappen" : "Sidebar einklappen"}
         >
@@ -428,9 +270,8 @@ const Dashboard = ({ player, onLogout }) => {
         </button>
         
         <div style={{ 
-          ...DASHBOARD_STYLES.profileBox, display: "flex", flexDirection: "column", gap: "14px", 
-          padding: isSidebarCollapsed ? "8px" : "16px", boxSizing: "border-box",
-          border: "1px solid #e2e8f0", backgroundColor: "#ffffff",
+          ...DASHBOARD_STYLES.profileBox,
+          padding: isSidebarCollapsed ? "8px" : "16px",
           alignItems: isSidebarCollapsed ? "center" : "stretch"
         }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: isSidebarCollapsed ? "center" : "flex-start", gap: "14px", width: "100%" }}>
@@ -438,23 +279,22 @@ const Dashboard = ({ player, onLogout }) => {
               <RetroJersey color={localPlayer.name_color} number={localPlayer.jersey_number} size={isSidebarCollapsed ? 40 : 48} />
             </div>
             {!isSidebarCollapsed && (
-              <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flexGrow: 1 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+              <div style={DASHBOARD_STYLES.profileMetaWrapper}>
+                <div style={DASHBOARD_STYLES.profileNameContainer}>
                   <h2 style={{ 
-                    fontSize: "1.15rem", margin: 0, fontWeight: "800",
-                    color: (localPlayer.name_color && localPlayer.name_color.toLowerCase() !== "#ffffff") ? localPlayer.name_color : "#0f172a",
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
+                    ...DASHBOARD_STYLES.profileName,
+                    color: (localPlayer.name_color && localPlayer.name_color.toLowerCase() !== "#ffffff") ? localPlayer.name_color : "#0f172a"
                   }}>
                     {displayName}
                   </h2>
                   {localPlayer.supported_country && <FlagIcon teamName={localPlayer.supported_country} />}
                 </div>
                 <div style={{ marginTop: "4px" }}>
-                  <span style={{ ...DASHBOARD_STYLES.badge, margin: 0, backgroundColor: "#f1f5f9", color: "#334155", fontWeight: "600", display: "inline-block" }}>
+                  <span style={DASHBOARD_STYLES.badge}>
                     {localPlayer.is_admin ? "Admin" : "Spieler"}
                   </span>
                 </div>
-                <div style={{ fontSize: "0.8rem", color: "#475569", fontWeight: "600", marginTop: "4px" }}>
+                <div style={DASHBOARD_STYLES.jerseyNumberText}>
                   Trikotnummer: #{localPlayer.jersey_number || "—"}
                 </div>
               </div>
@@ -463,12 +303,7 @@ const Dashboard = ({ player, onLogout }) => {
           <div style={{ display: "flex", marginTop: "2px", width: "100%" }}>
             <button
               onClick={() => setActivePhase("profile")}
-              style={{
-                padding: "8px 14px", borderRadius: "8px", border: "1px solid #cbd5e1",
-                backgroundColor: "white", color: "#2563eb", cursor: "pointer",
-                fontWeight: "600", fontSize: "13px", display: "flex",
-                alignItems: "center", justifyContent: "center", gap: "6px", width: "100%"
-              }}
+              style={DASHBOARD_STYLES.settingsButton}
               title="Profil & Einstellungen"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -480,7 +315,7 @@ const Dashboard = ({ player, onLogout }) => {
           </div>
         </div>
 
-        <nav style={{ ...DASHBOARD_STYLES.nav, width: "100%", display: "flex", flexDirection: "column", gap: "4px" }}>
+        <nav style={DASHBOARD_STYLES.nav}>
           <button 
             onClick={() => setActivePhase("ranking")} 
             style={{ ...getTabButtonStyle(activePhase === "ranking"), justifyContent: isSidebarCollapsed ? "center" : "flex-start" }}
@@ -490,7 +325,7 @@ const Dashboard = ({ player, onLogout }) => {
           </button>
           
           <hr style={DASHBOARD_STYLES.divider} />
-          {!isSidebarCollapsed && <p style={{ ...DASHBOARD_STYLES.sectionHeader, color: "#475569", fontWeight: "700" }}>Tipp-Runden</p>}
+          {!isSidebarCollapsed && <p style={DASHBOARD_STYLES.sectionHeader}>Tipp-Runden</p>}
           
           <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
             {allPhases.filter(p => p.is_active).map((p) => (
@@ -505,7 +340,7 @@ const Dashboard = ({ player, onLogout }) => {
                 title={`Phase ${p.id}`}
               >
                 {isSidebarCollapsed ? `P${p.id}` : (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
+                  <div style={DASHBOARD_STYLES.navRowSpace}>
                     <span>Phase {p.id} {p.is_submitted ? " 🔒" : ""}</span>
                     <CountdownTimer targetDate={PHASE_DEADLINES[p.id]} />
                   </div>
@@ -524,7 +359,7 @@ const Dashboard = ({ player, onLogout }) => {
             title="Bonusfragen"
           >
             {isSidebarCollapsed ? "🏆" : (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
+              <div style={DASHBOARD_STYLES.navRowSpace}>
                 <span>🏆 Bonusfragen {isPhase1Locked ? " 🔒" : ""}</span>
                 <CountdownTimer targetDate={PHASE_DEADLINES.bonus} />
               </div>
@@ -534,7 +369,7 @@ const Dashboard = ({ player, onLogout }) => {
           {localPlayer.is_admin && (
             <>
               <hr style={DASHBOARD_STYLES.divider} />
-              {!isSidebarCollapsed && <p style={{ ...DASHBOARD_STYLES.sectionHeader, color: "#475569", fontWeight: "700" }}>Admin-Bereich</p>}
+              {!isSidebarCollapsed && <p style={DASHBOARD_STYLES.sectionHeader}>Admin-Bereich</p>}
               <button onClick={() => setActivePhase("admin_control")} style={{ ...getPhaseButtonStyle(activePhase === "admin_control", false), justifyContent: isSidebarCollapsed ? "center" : "flex-start" }} title="Schaltzentrale">
                 {isSidebarCollapsed ? "🛡️" : "🛡️ Schaltzentrale"}
               </button>
@@ -545,7 +380,7 @@ const Dashboard = ({ player, onLogout }) => {
           )}
 
           <hr style={DASHBOARD_STYLES.divider} />
-          {!isSidebarCollapsed && <p style={{ ...DASHBOARD_STYLES.sectionHeader, color: "#475569", fontWeight: "700" }}>Statistiken</p>}
+          {!isSidebarCollapsed && <p style={DASHBOARD_STYLES.sectionHeader}>Statistiken</p>}
           
           <button 
             onClick={() => setActivePhase("points_analysis")} 
@@ -569,32 +404,25 @@ const Dashboard = ({ player, onLogout }) => {
           </button>
         </nav>
 
-        <button onClick={onLogout} style={{ ...DASHBOARD_STYLES.logoutButton, marginTop: "auto" }}>
+        <button onClick={onLogout} style={DASHBOARD_STYLES.logoutButton}>
           {isSidebarCollapsed ? "❌" : "Abmelden"}
         </button>
       </aside>
 
-      <main style={{ 
-        flex: 1, height: "100%", overflow: "auto", padding: "24px 30px", boxSizing: "border-box",
-        position: "relative", zIndex: 1, transition: "filter 0.4s ease-in-out, transform 0.4s ease-in-out"
-      }}>
+      {/* HAUPTINHALT */}
+      <main style={DASHBOARD_STYLES.mainContent}>
         {activePhase === "ranking" ? (
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(350px, 4.5fr) minmax(450px, 5.5fr)", gap: "30px", alignItems: "flex-start" }}>
+          <div style={DASHBOARD_STYLES.dashboardGrid}>
             
             <section style={DASHBOARD_STYLES.whiteCard}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-                <h3 style={{ ...DASHBOARD_STYLES.contentTitle, color: "#0f172a", margin: 0 }}>Aktuelle Rangliste</h3>
+              <div style={DASHBOARD_STYLES.cardHeaderRow}>
+                <h3 style={DASHBOARD_STYLES.contentTitle}>Aktuelle Rangliste</h3>
                 
                 <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                   <span style={{ fontSize: "0.85rem", fontWeight: "600", color: "#64748b" }}>Anzeigemodus:</span>
                   <button 
                     onClick={() => setShowDisplayName(!showDisplayName)}
-                    style={{
-                      padding: "6px 12px", borderRadius: "8px", border: "1px solid #cbd5e1",
-                      backgroundColor: "#ffffff", color: "#1e293b", fontSize: "0.85rem",
-                      fontWeight: "600", cursor: "pointer", display: "flex", alignItems: "center",
-                      gap: "6px", boxShadow: "0 1px 2px rgba(0,0,0,0.05)", transition: "all 0.15s ease"
-                    }}
+                    style={DASHBOARD_STYLES.toggleViewButton}
                   >
                     <span>{showDisplayName ? "👤 Anzeigenamen" : "🆔 Realnamen"}</span>
                     <span style={{ color: "#64748b" }}>🔄</span>
@@ -602,29 +430,18 @@ const Dashboard = ({ player, onLogout }) => {
                 </div>
               </div>
 
-              {/* TEAM-SCOREBOARD MIT HIGHLIGHTING FÜR DEIN TEAM */}
-              <div style={{ 
-                display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px", 
-                backgroundColor: "#f8fafc", padding: "12px 16px", borderRadius: "10px", 
-                marginBottom: "20px", border: "1px solid #e2e8f0"
-              }}>
+              {/* TEAM-SCOREBOARD */}
+              <div style={DASHBOARD_STYLES.teamScoreboardContainer}>
                 {sortedTeams.map((t) => {
                   const isMyTeam = t.name === myTeamName;
                   return (
                     <div 
                       key={t.name} 
                       style={{ 
-                        display: "flex", 
-                        flexDirection: "column", 
-                        alignItems: "center", 
-                        justifyContent: "center", 
-                        textAlign: "center",
-                        padding: "8px 6px",
-                        borderRadius: "8px",
+                        ...DASHBOARD_STYLES.teamScoreCard,
                         backgroundColor: isMyTeam ? "#ffffff" : "transparent",
-                        border: isMyTeam ? "2px solid #eab308" : "2px solid transparent", // Goldener Rahmen für dein Team
-                        boxShadow: isMyTeam ? "0 4px 10px rgba(234, 179, 8, 0.18)" : "none", // Schicker Glow
-                        transition: "all 0.3s ease"
+                        border: isMyTeam ? "2px solid #eab308" : "2px solid transparent",
+                        boxShadow: isMyTeam ? "0 4px 10px rgba(234, 179, 8, 0.18)" : "none"
                       }}
                     >
                       <span style={{ fontWeight: "700", color: isMyTeam ? "#0f172a" : "#475569", fontSize: "0.85rem" }}>
@@ -638,18 +455,17 @@ const Dashboard = ({ player, onLogout }) => {
                 })}
               </div>
 
-              <table style={{ ...DASHBOARD_STYLES.table, width: "100%" }}>
+              <table style={DASHBOARD_STYLES.table}>
                 <thead>
                   <tr style={DASHBOARD_STYLES.tableHeader}>
-                    <th style={{ ...DASHBOARD_STYLES.th, color: "#334155", width: "95px" }}>Platz</th>
-                    <th style={{ ...DASHBOARD_STYLES.th, color: "#334155" }}>Name</th>
-                    <th style={{ ...DASHBOARD_STYLES.th, color: "#334155", textAlign: "right", width: "90px" }}>Punkte</th>
+                    <th style={{ ...DASHBOARD_STYLES.th, width: "95px" }}>Platz</th>
+                    <th style={DASHBOARD_STYLES.th}>Name</th>
+                    <th style={{ ...DASHBOARD_STYLES.th, textAlign: "right", width: "90px" }}>Punkte</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {ranking.map((entry, index) => {
+                  {ranking.map((entry) => {
                     const isMe = entry.id === localPlayer.id;
-                    
                     const entryName = showDisplayName 
                       ? (entry.display_name && entry.display_name !== "EMPTY" ? entry.display_name : entry.name)
                       : entry.name;
@@ -659,10 +475,9 @@ const Dashboard = ({ player, onLogout }) => {
                     
                     return (
                       <tr key={entry.id} style={{ ...(isMe ? DASHBOARD_STYLES.myRow : {}), height: "58px", borderBottom: "1px solid #e2e8f0" }}>
-                        <td style={{ ...DASHBOARD_STYLES.td, color: "#0f172a", fontSize: "16px", fontWeight: "700" }}>
+                        <td style={DASHBOARD_STYLES.tdRank}>
                           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                             <span>{entry.rank}.</span>
-                            
                             {entry.trend === "up" && (
                               <span style={{ color: "#22c55e", fontSize: "0.75rem", fontWeight: "700", marginLeft: "2px" }} title={`Verbessert um ${entry.matchdayTrend} Plätze`}>
                                 ▲ +{entry.matchdayTrend}
@@ -691,7 +506,6 @@ const Dashboard = ({ player, onLogout }) => {
                                 {entryName}
                               </span>
                               {entry.supported_country && <FlagIcon teamName={entry.supported_country} />}
-                              
                               {teamSymbol && (
                                 <span style={{ fontSize: "0.85rem", color: "#64748b", fontWeight: "600", marginLeft: "2px" }}>
                                   ({teamSymbol})
@@ -700,7 +514,7 @@ const Dashboard = ({ player, onLogout }) => {
                             </div>
                           </div>
                         </td>
-                        <td style={{ ...DASHBOARD_STYLES.td, color: "#0f172a", textAlign: "right", fontSize: "1.05rem" }}>
+                        <td style={DASHBOARD_STYLES.tdPoints}>
                           <strong>{entry.points}</strong>
                         </td>
                       </tr>
@@ -711,23 +525,39 @@ const Dashboard = ({ player, onLogout }) => {
             </section>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "30px" }}>
-              {hasFinishedMatches && (
+              {matchdayInfo.hasFinishedMatches && (
                 <section>
-                  <h3 style={{ ...DASHBOARD_STYLES.contentTitle, color: "#0f172a", marginBottom: "12px" }}>
-                    ⚽ Letzter Spieltag (Spieltag {currentLastSpieltag})
+                  <h3 style={{ ...DASHBOARD_STYLES.contentTitle, marginBottom: "12px" }}>
+                    ⚽ Letzter Spieltag (Spieltag {matchdayInfo.currentLastSpieltag})
                   </h3>
-                  {allMatches.filter(m => (m.matchday || m.spieltag || 1) === currentLastSpieltag).map(renderMatchTendencyCard)}
+                  {matchdayInfo.lastMatches.map(m => (
+                    <MatchTendencyCard 
+                      key={m.id}
+                      match={m}
+                      allCommunityTips={allCommunityTips}
+                      localPlayer={localPlayer}
+                      isMyPhase1Submitted={isMyPhase1Submitted}
+                    />
+                  ))}
                 </section>
               )}
 
               <section>
-                <h3 style={{ ...DASHBOARD_STYLES.contentTitle, color: "#0f172a", marginBottom: "12px" }}>
-                  🔮 Nächster Spieltag (Spieltag {currentNextSpieltag})
+                <h3 style={{ ...DASHBOARD_STYLES.contentTitle, marginBottom: "12px" }}>
+                  🔮 Nächster Spieltag (Spieltag {matchdayInfo.currentNextSpieltag})
                 </h3>
-                {allMatches.filter(m => (m.matchday || m.spieltag || 1) === currentNextSpieltag).length === 0 ? (
+                {matchdayInfo.nextMatches.length === 0 ? (
                   <div style={{ color: "#64748b", fontStyle: "italic" }}>Keine weiteren anstehenden Spieltage gefunden.</div>
                 ) : (
-                  allMatches.filter(m => (m.matchday || m.spieltag || 1) === currentNextSpieltag).map(renderMatchTendencyCard)
+                  matchdayInfo.nextMatches.map(m => (
+                    <MatchTendencyCard 
+                      key={m.id}
+                      match={m}
+                      allCommunityTips={allCommunityTips}
+                      localPlayer={localPlayer}
+                      isMyPhase1Submitted={isMyPhase1Submitted}
+                    />
+                  ))
                 )}
               </section>
             </div>
