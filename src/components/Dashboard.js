@@ -38,6 +38,7 @@ const Dashboard = ({ player, onLogout }) => {
   
   const [allMatches, setAllMatches] = useState([]);
   const [allCommunityTips, setAllCommunityTips] = useState([]);
+  const [allPredictions, setAllPredictions] = useState([]);
   
   const [ranking, setRanking] = useState([]);
   const [allPhases, setAllPhases] = useState([]); 
@@ -227,21 +228,30 @@ const Dashboard = ({ player, onLogout }) => {
   }, [allMatches]);
 
   const sortedTeams = useMemo(() => {
-    const teamScores = { Alpha: 0, Beta: 0, Gamma: 0 };
-    ranking.forEach(entry => {
-      const teamName = FORMATION_MAPPING[entry.id]?.team;
-      if (teamName && teamScores[teamName] !== undefined) {
-        teamScores[teamName] += entry.points;
-      }
-    });
-    return Object.keys(teamScores)
-      .map(key => ({
-        name: key,
-        points: parseFloat(teamScores[key].toFixed(1)),
-        symbol: TEAM_SYMBOLS[key] || ""
-      }))
-      .sort((a, b) => b.points - a.points);
-  }, [ranking]);
+      const teamScores = { Alpha: 0, Phi: 0, Gamma: 0 };
+      // IDs als Strings hinterlegen für exakten JavaScript-Vergleich
+      const excludedIds = ["27", "28", "29", "30"];
+
+      ranking.forEach(entry => {
+        // Höchste Sicherheitsstufe: Wir wandeln die entry.id in einen String um
+        if (excludedIds.includes(String(entry.id))) {
+          return; // Überspringt diesen Spieler AUSSCHLIESSLICH für die Team-Wertung
+        }
+
+        const teamName = FORMATION_MAPPING[entry.id]?.team;
+        if (teamName && teamScores[teamName] !== undefined) {
+          teamScores[teamName] += entry.points;
+        }
+      });
+
+      return Object.keys(teamScores)
+        .map(key => ({
+          name: key,
+          points: parseFloat(teamScores[key].toFixed(1)),
+          symbol: TEAM_SYMBOLS[key] || ""
+        }))
+        .sort((a, b) => b.points - a.points);
+    }, [ranking]);
 
   if (loading) return <div style={DASHBOARD_STYLES.loadingContainer}>Dashboard wird geladen...</div>;
 
@@ -574,7 +584,7 @@ const Dashboard = ({ player, onLogout }) => {
             ) : activePhase === "points_analysis" ? (
               <PointsAnalysisPage userId={localPlayer.id} />
             ) : activePhase === "global_statistics" ? (
-              <StatisticsPage currentUserId={localPlayer.id} />    
+              <StatisticsPage currentUserId={localPlayer.id} allPlayers={ranking} matches={allMatches} predictions={allPredictions} />    
             ) : activePhase === "bonus_questions" ? (
               <BonusQuestions userId={localPlayer.id} isReadOnly={isPhase1Locked} isAdmin={localPlayer.is_admin} />
             ) : activePhase === "support_feedback" ? (

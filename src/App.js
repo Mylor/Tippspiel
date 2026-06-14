@@ -5,7 +5,7 @@ import Dashboard from "./components/Dashboard";
 // Griechische Symbole für die Teams (Exportiert für Dashboard-Nutzung)
 export const TEAM_SYMBOLS = {
   Alpha: "α",
-  Beta: "β",
+  Phi: "\u03C6",
   Gamma: "γ"
 };
 
@@ -25,18 +25,18 @@ export const FORMATION_MAPPING = {
   32: { team: "Alpha", left: "68%", top: "18%", role: "ST" },
   30: { team: "Alpha", left: "0%",  top: "0%",  role: "Coach" }, // Per Logik im Header platziert
 
-  // --- TEAM BETA (3-4-1-2) ---
-  24: { team: "Beta",  left: "50%", top: "88%", role: "TW" },
-  28: { team: "Beta",  left: "22%", top: "68%", role: "IV" },
-  5:  { team: "Beta",  left: "50%", top: "68%", role: "IV" },
-  14: { team: "Beta",  left: "78%", top: "68%", role: "IV" },
-  34: { team: "Beta",  left: "15%", top: "46%", role: "RM" },
-  18: { team: "Beta",  left: "38%", top: "46%", role: "ZM" },
-  15: { team: "Beta",  left: "62%", top: "46%", role: "ZM" },
-  9:  { team: "Beta",  left: "85%", top: "46%", role: "LM" },
-  25: { team: "Beta",  left: "50%", top: "30%", role: "ZOM" },
-  22: { team: "Beta",  left: "32%", top: "14%", role: "ST" },
-  26: { team: "Beta",  left: "68%", top: "14%", role: "ST" },
+  // --- TEAM Phi (3-4-1-2) ---
+  24: { team: "Phi",  left: "50%", top: "88%", role: "TW" },
+  28: { team: "Phi",  left: "22%", top: "68%", role: "IV" },
+  5:  { team: "Phi",  left: "50%", top: "68%", role: "IV" },
+  14: { team: "Phi",  left: "78%", top: "68%", role: "IV" },
+  34: { team: "Phi",  left: "15%", top: "46%", role: "RM" },
+  18: { team: "Phi",  left: "38%", top: "46%", role: "ZM" },
+  15: { team: "Phi",  left: "62%", top: "46%", role: "ZM" },
+  9:  { team: "Phi",  left: "85%", top: "46%", role: "LM" },
+  25: { team: "Phi",  left: "50%", top: "30%", role: "ZOM" },
+  22: { team: "Phi",  left: "32%", top: "14%", role: "ST" },
+  26: { team: "Phi",  left: "68%", top: "14%", role: "ST" },
 
   // --- TEAM GAMMA (4-2-3-1) ---
   10: { team: "Gamma", left: "50%", top: "88%", role: "TW" },
@@ -89,7 +89,7 @@ function App() {
 
   // Gruppierung der Spieler in die 3 Teams
   const teamAlpha = players.filter(p => FORMATION_MAPPING[p.id]?.team === "Alpha");
-  const teamBeta  = players.filter(p => FORMATION_MAPPING[p.id]?.team === "Beta");
+  const teamPhi  = players.filter(p => FORMATION_MAPPING[p.id]?.team === "Phi");
   const teamGamma = players.filter(p => FORMATION_MAPPING[p.id]?.team === "Gamma");
 
   const unassignedPlayers = players.filter(p => !FORMATION_MAPPING[p.id]);
@@ -179,7 +179,7 @@ function App() {
             <div style={mainLayoutContainerStyle}>
               <div style={flexPitchContainerStyle}>
                 {renderHalfField(teamAlpha, "Team Alpha", "4-4-2")}
-                {renderHalfField(teamBeta, "Team Beta", "3-4-1-2")}
+                {renderHalfField(teamPhi, "Team Phi", "3-4-1-2")}
                 {renderHalfField(teamGamma, "Team Gamma", "4-2-3-1")}
               </div>
 
