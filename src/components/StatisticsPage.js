@@ -3,16 +3,31 @@ import { supabase } from "../supabaseClient";
 import { RetroJersey } from "../Utils/RetroJersey";
 import { FlagIcon } from "../Utils/teamUtils";
 
-const StatisticsPage = ({ currentUserId }) => {
+const StatisticsPage = ({ 
+  currentUserId, 
+  allPlayers, 
+  matches, 
+  predictions, 
+  showDisplayName,       // NEU: Vom Parent gesteuert
+  onToggleDisplayName    // NEU: Vom Parent gesteuert
+}) => {
   const [activeTab, setActiveTab] = useState("highlights");
   const [pointsData, setPointsData] = useState([]);
   const [players, setPlayers] = useState([]);
+  const [globalMaxStats, setGlobalMaxStats] = useState(null); 
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchStatsData() {
       setLoading(true);
       try {
+        // AUSGEKOMMENTIERT FÜR SPÄTER: Lädt system_config parallel mit
+        // const [pointsRes, playersRes, configRes] = await Promise.all([
+        //   supabase.from("user_points_detail").select("*"),
+        //   supabase.from("player").select("id, name, display_name, name_color, jersey_number, supported_country"),
+        //   supabase.from("system_config").select("value").eq("key", "global_max_stats").maybeSingle()
+        // ]);
+
         const [pointsRes, playersRes] = await Promise.all([
           supabase.from("user_points_detail").select("*"),
           supabase.from("player").select("id, name, display_name, name_color, jersey_number, supported_country")
@@ -20,6 +35,9 @@ const StatisticsPage = ({ currentUserId }) => {
 
         setPointsData(pointsRes.data || []);
         setPlayers(playersRes.data || []);
+        
+        // AUSGEKOMMENTIERT FÜR SPÄTER
+        // setGlobalMaxStats(configRes.data?.value || null);
       } catch (err) {
         console.error("Fehler beim Laden der Statistikdaten:", err);
       } finally {
@@ -204,7 +222,7 @@ const StatisticsPage = ({ currentUserId }) => {
       }
     });
 
-    // KORREKTUR: Phasen-Gewinner unterstützt jetzt ebenfalls geteilte Plätze bei Gleichstand
+    // Phasen-Gewinner
     const phaseWinners = {};
     [1, 2, 3, 4, 5].forEach(phase => {
       const sorted = [...allStatsList].sort((a, b) => b.pointsPerPhase[phase] - a.pointsPerPhase[phase]);
@@ -270,6 +288,10 @@ const StatisticsPage = ({ currentUserId }) => {
   // --- VISUELLER HELPER FÜR SPIELER-PROFILEDETAILS ---
   const renderPlayerWithAssets = (player, isMe = false, badge = null) => {
     if (!player) return null;
+    
+    // Nutzt die übergebene Prop: showDisplayName ? Anzeigename : Echter Name
+    const nameToRender = showDisplayName ? player.displayName : player.name;
+
     return (
       <div style={{ display: "inline-flex", alignItems: "center", gap: "10px", verticalAlign: "middle" }}>
         {player.supported_country && player.supported_country.trim() !== "" && (
@@ -281,7 +303,7 @@ const StatisticsPage = ({ currentUserId }) => {
           </div>
         )}
         <span style={{ fontWeight: "600", color: player.name_color || "#1e293b" }}>
-          {player.displayName}
+          {nameToRender}
           {isMe && <span style={{ color: "#64748b", fontWeight: "normal", fontSize: "0.85rem" }}> (Du)</span>}
           {badge && <span style={{ marginLeft: "6px" }}>{badge}</span>}
         </span>
@@ -308,11 +330,39 @@ const StatisticsPage = ({ currentUserId }) => {
     };
   };
 
+  // AUSGEKOMMENTIERT FÜR SPÄTER: Hilfsvariablen für Max-Werte
+  // const maxSpielTipps = globalMaxStats?.max_spiel_tipps || 0;
+  // const maxPrognosen = globalMaxStats?.max_prognosen || 0;
+
   return (
     <div style={{ padding: "24px", backgroundColor: "#ffffff", minHeight: "100vh", fontFamily: "sans-serif" }}>
-      <h2 style={{ color: "#1f2937", fontSize: "24px", fontWeight: "600", marginBottom: "20px" }}>
-        📊 Live-Statistikzentrum
-      </h2>
+      
+      {/* HEADER BEREICH MIT TITEL UND SWITCH-BUTTON */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "12px" }}>
+        <h2 style={{ color: "#1f2937", fontSize: "24px", fontWeight: "600", margin: 0 }}>
+          📊 Live-Statistikzentrum
+        </h2>
+        <button
+          onClick={onToggleDisplayName} // Ruft die Funktion aus dem Parent auf
+          style={{
+            padding: "8px 14px",
+            backgroundColor: "#f8fafc",
+            border: "1px solid #cbd5e1",
+            borderRadius: "8px",
+            color: "#334155",
+            fontWeight: "600",
+            fontSize: "0.85rem",
+            cursor: "pointer",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "6px",
+            boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+            transition: "all 0.15s ease"
+          }}
+        >
+          🔄 Switch: {showDisplayName ? "Anzeigename" : "Echter Name"}
+        </button>
+      </div>
 
       {/* --- REITER-NAVIGATION --- */}
       <div style={{ display: "flex", gap: "8px", borderBottom: "2px solid #e2e8f0", marginBottom: "24px", overflowX: "auto", paddingBottom: "4px" }}>
@@ -350,36 +400,74 @@ const StatisticsPage = ({ currentUserId }) => {
       {/* ================= REITER 1: MEINE HIGHLIGHTS ================= */}
       {activeTab === "highlights" && (
         <div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "20px", marginBottom: "30px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "20px", marginBottom: "30px" }}>
+            
+            {/* CARD 1: VOLLTREFFER */}
             <div style={cardStyle}>
               <p style={cardLabelStyle}>Deine Volltreffer</p>
               <h3 style={{ ...cardValueStyle, color: "#16a34a" }}>{stats.myStats.perfectHits} 🎯</h3>
               <p style={cardSubStyle}>Schnitt im Tippspiel: {stats.avgPerfectHits.toFixed(1)}</p>
             </div>
+
+            {/* CARD 2: SPIEL-TIPPS */}
             <div style={cardStyle}>
-              <p style={cardLabelStyle}>Punkte durch Spiel-Tipps</p>
-              <h3 style={{ ...cardValueStyle, color: "#2563eb" }}>{stats.myStats.matchPointsOnly} Pkt</h3>
-              <p style={cardSubStyle}>Globaler Durchschnitt: {stats.avgMatchPoints.toFixed(1)}</p>
+              <div>
+                <p style={cardLabelStyle}>Punkte durch Spiel-Tipps</p>
+                <h3 style={{ ...cardValueStyle, color: "#2563eb" }}>{stats.myStats.matchPointsOnly} Pkt</h3>
+                <p style={cardSubStyle}>Globaler Durchschnitt: {stats.avgMatchPoints.toFixed(1)}</p>
+              </div>
+              {/* AUSGEKOMMENTIERT FÜR SPÄTER: Max-Ausbeute Box
+              <div style={{ textAlign: "right", borderLeft: "1px solid #e2e8f0", paddingLeft: "16px", minWidth: "105px" }}>
+                <p style={cardLabelStyle}>Ausbeute Max.</p>
+                <h3 style={{ ...cardValueStyle, color: "#2563eb", fontSize: "1.6rem" }}>
+                  {maxSpielTipps > 0 ? ((stats.myStats.matchPointsOnly / maxSpielTipps) * 100).toFixed(1) : "0.0"}%
+                </h3>
+                <p style={cardSubStyle}>von {maxSpielTipps} möglichen</p>
+              </div>
+              */}
             </div>
+
+            {/* CARD 3: PROGNOSEN */}
             <div style={cardStyle}>
-              <p style={cardLabelStyle}>Punkte durch Prognosen</p>
-              <h3 style={{ ...cardValueStyle, color: "#7e22ce" }}>{stats.myStats.prognosisPointsOnly} Pkt</h3>
-              <p style={cardSubStyle}>Anteil an Gesamtpunkten: {((stats.myStats.prognosisPointsOnly / (stats.myStats.totalPoints || 1)) * 100).toFixed(0)}%</p>
+              <div>
+                <p style={cardLabelStyle}>Punkte durch Prognosen</p>
+                <h3 style={{ ...cardValueStyle, color: "#7e22ce" }}>{stats.myStats.prognosisPointsOnly} Pkt</h3>
+                <p style={cardSubStyle}>Anteil an Gesamtpunkten: {((stats.myStats.prognosisPointsOnly / (stats.myStats.totalPoints || 1)) * 100).toFixed(0)}%</p>
+              </div>
+              {/* AUSGEKOMMENTIERT FÜR SPÄTER: Max-Ausbeute Box
+              <div style={{ textAlign: "right", borderLeft: "1px solid #e2e8f0", paddingLeft: "16px", minWidth: "105px" }}>
+                <p style={cardLabelStyle}>Ausbeute Max.</p>
+                <h3 style={{ ...cardValueStyle, color: "#7e22ce", fontSize: "1.6rem" }}>
+                  {maxPrognosen > 0 ? ((stats.myStats.prognosisPointsOnly / maxPrognosen) * 100).toFixed(1) : "0.0"}%
+                </h3>
+                <p style={cardSubStyle}>von {maxPrognosen} möglichen</p>
+              </div>
+              */}
             </div>
+
           </div>
 
+          {/* PROGRESS BARS */}
           <div style={{ ...cardStyle, maxWidth: "600px" }}>
             <h4 style={{ margin: "0 0 16px 0", color: "#1f2937", fontSize: "1.1rem" }}>Deine Punkteausbeute nach Phasen</h4>
             {[1, 2, 3, 4, 5].map(phase => {
               const userPts = stats.myStats.pointsPerPhase[phase];
-              const maxPhasePoints = Math.max(...stats.allStatsList.map(p => p.pointsPerPhase[phase]), 1);
-              const barPercentage = Math.min((userPts / maxPhasePoints) * 100, 100);
+              
+              // AUSGEKOMMENTIERT FÜR SPÄTER: Echte Max-Berechnung für Fortschrittsbalken
+              // const maxPhasePoints = globalMaxStats?.phases?.[String(phase)] || 0;
+              // const barPercentage = maxPhasePoints > 0 ? Math.min((userPts / maxPhasePoints) * 100, 100) : 0;
+              const barPercentage = 0; 
 
               return (
                 <div key={phase} style={{ marginBottom: "14px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.88rem", fontWeight: "600", color: "#475569", marginBottom: "4px" }}>
                     <span>Phase {phase}</span>
-                    <span style={{ marginLeft: "auto" }}>{userPts} Pkt (Bestwert: {maxPhasePoints})</span>
+                    <span style={{ marginLeft: "auto" }}>
+                      {userPts} Pkt
+                      {/* AUSGEKOMMENTIERT FÜR SPÄTER:
+                      {maxPhasePoints > 0 ? ` (Max. möglich: ${maxPhasePoints})` : " (Noch keine Spiele gewertet)"} 
+                      */}
+                    </span>
                   </div>
                   <div style={{ width: "100%", height: "10px", backgroundColor: "#f1f5f9", borderRadius: "10px", overflow: "hidden" }}>
                     <div style={{ width: `${barPercentage}%`, height: "100%", backgroundColor: "#3b82f6", borderRadius: "10px", transition: "width 0.5s ease" }} />
@@ -427,13 +515,12 @@ const StatisticsPage = ({ currentUserId }) => {
                           {player.perfectHits}
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
+                    )))}
+                  </tbody>
               </table>
             </div>
 
-            {/* Phasen Könige (Unterstützt nun mehrere geteilte Phasensieger sauber untereinander) */}
+            {/* Phasen Könige */}
             <div style={cardStyle}>
               <h4 style={{ margin: "0 0 14px 0", color: "#1f2937" }}>👑 Die Herrscher der Phasen</h4>
               <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -623,7 +710,7 @@ const StatisticsPage = ({ currentUserId }) => {
   );
 };
 
-// Modulare UI-Styles
+// --- STYLE-OBJEKTE ---
 const cardStyle = {
   backgroundColor: "#ffffff",
   borderRadius: "12px",
@@ -632,11 +719,37 @@ const cardStyle = {
   boxShadow: "0 1px 3px 0 rgba(0, 0, 0, 0.05)"
 };
 
-const cardLabelStyle = { margin: 0, fontSize: "0.85rem", fontWeight: "600", color: "#64748b", textTransform: "uppercase" };
-const cardValueStyle = { margin: "8px 0", fontSize: "1.8rem", fontWeight: "700" };
-const cardSubStyle = { margin: 0, fontSize: "0.8rem", color: "#94a3b8" };
+const cardLabelStyle = {
+  margin: "0 0 4px 0",
+  fontSize: "0.85rem",
+  fontWeight: "600",
+  color: "#64748b"
+};
 
-const thStyle = { padding: "12px 16px", borderBottom: "2px solid #e2e8f0", color: "#475569", fontWeight: "600", fontSize: "0.88rem" };
-const tdStyle = { padding: "12px 16px", fontSize: "0.9rem", verticalAlign: "middle" };
+const cardValueStyle = {
+  margin: "0 0 4px 0",
+  fontSize: "1.75rem",
+  fontWeight: "700"
+};
+
+const cardSubStyle = {
+  margin: 0,
+  fontSize: "0.8rem",
+  color: "#94a3b8"
+};
+
+const thStyle = {
+  padding: "12px 16px",
+  fontSize: "0.85rem",
+  fontWeight: "600",
+  color: "#475569",
+  borderBottom: "1px solid #e2e8f0"
+};
+
+const tdStyle = {
+  padding: "12px 16px",
+  fontSize: "0.9rem",
+  verticalAlign: "middle"
+};
 
 export default StatisticsPage;

@@ -48,6 +48,7 @@ const Dashboard = ({ player, onLogout }) => {
   
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [showDisplayName, setShowDisplayName] = useState(true);
+  const [showStatsDisplayName, setShowStatsDisplayName] = useState(true)
 
   useEffect(() => {
     if (activePhase === "ranking") {
@@ -584,7 +585,8 @@ const Dashboard = ({ player, onLogout }) => {
             ) : activePhase === "points_analysis" ? (
               <PointsAnalysisPage userId={localPlayer.id} />
             ) : activePhase === "global_statistics" ? (
-              <StatisticsPage currentUserId={localPlayer.id} allPlayers={ranking} matches={allMatches} predictions={allPredictions} />    
+              <StatisticsPage currentUserId={localPlayer.id} allPlayers={ranking} matches={allMatches} predictions={allPredictions} showDisplayName={showStatsDisplayName} // <-- NEU
+                onToggleDisplayName={() => setShowStatsDisplayName(!showStatsDisplayName)} />    
             ) : activePhase === "bonus_questions" ? (
               <BonusQuestions userId={localPlayer.id} isReadOnly={isPhase1Locked} isAdmin={localPlayer.is_admin} />
             ) : activePhase === "support_feedback" ? (

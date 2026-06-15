@@ -1,92 +1,105 @@
 import { supabase } from "../supabaseClient.js";
 import { POINTS_CONFIG, calculateDetailedMatchPoints, getDynamicWinnerPoints } from "./pointsEngine.js";
 
-export async function calculateAllUsersMaxPoints() {
-  console.log("[MAX-POINTS] 📈 Starte Berechnung der maximal möglichen Punkte für alle User...");
+export async function updateGlobalMaxStats() {
+  console.log("[STATS] 📊 Starte Berechnung der differenzierten globalen Maximalpunkte...");
 
-  // 1. Alle Daten laden (ANGEPASST: "player" statt "profiles" & "display_name")
-  const { data: players } = await supabase.from("player").select("id, display_name");
+  // 1. Basis-Daten laden
   const { data: allMatches } = await supabase.from("match").select("*");
-  const { data: allTips } = await supabase.from("tip").select("*");
-  const { data: allBonusTips } = await supabase.from("user_bonus_tips").select("*");
   const { data: teams } = await supabase.from("teams").select("name, fifa_rank");
-  const { data: currentDetails } = await supabase.from("user_points_detail").select("*");
+  const { data: allBonusTips } = await supabase.from("user_bonus_tips").select("*");
 
-  if (!players) return;
+  if (!allMatches) {
+    console.error("[STATS] ❌ Matchdaten konnten nicht geladen werden.");
+    return;
+  }
 
   const rankMap = {};
   teams?.forEach(t => { rankMap[t.name] = t.fifa_rank || 50; });
 
-  const statsEntries = [];
+  // Datenstrukturen für die differenzierten Max-Punkte vorbereiten
+  let maxSpielTippsTotal = 0;
+  const maxPointsPerPhase = { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0 };
+  const maxPointsPerGroup = {}; // Wird dynamisch befüllt (A, B, C...)
 
-  // Schleife läuft jetzt über "players"
-  for (const player of players) {
-    const pId = player.id;
-
-    // --- A) BEREITS FESTE PUNKTE (Echtzeit) ---
-    const achievedPoints = currentDetails
-      ? currentDetails.filter(d => d.player_id === pId).reduce((sum, item) => sum + item.points_total, 0)
-      : 0;
-
-    let remainingMatchPotential = 0;
-
-    // --- B) OFFENE MATCH-TIPPS SIMULIEREN ---
-    const openMatches = allMatches.filter(m => m.goals_a_real === null || m.goals_b_real === null);
+  // =========================================================================
+  // STEP A: MATCH-PUNKTE DIFFERENZIERT BERECHNEN (Für alle User identisch)
+  // =========================================================================
+  const closedMatches = allMatches.filter(m => m.goals_a_real !== null && m.goals_b_real !== null);
+  
+  closedMatches.forEach(match => {
+    const rankA = rankMap[match.team_a] || 50;
+    const rankB = rankMap[match.team_b] || 50;
+    const actualWinner = match.goals_a_real > match.goals_b_real ? "1" : match.goals_a_real < match.goals_b_real ? "2" : "0";
     
-    openMatches.forEach(match => {
-      const userTip = allTips?.find(t => t.player_id === pId && t.match_id === match.id);
-      if (!userTip || userTip.goals_a === null || userTip.goals_b === null) return;
+    // Dynamische oder fixe Tendenzpunkte ermitteln
+    const simWinnerPoints = match.stage === "group" 
+      ? getDynamicWinnerPoints(rankA, rankB, actualWinner)
+      : 4;
 
-      const simActual = { goals_a: userTip.goals_a, goals_b: userTip.goals_b };
-      
-      const tipWinner = userTip.goals_a > userTip.goals_b ? "1" : userTip.goals_a < userTip.goals_b ? "2" : "0";
-      const rankA = rankMap[match.team_a] || 50;
-      const rankB = rankMap[match.team_b] || 50;
-      
-      const simWinnerPoints = match.stage === "group" 
-        ? getDynamicWinnerPoints(rankA, rankB, tipWinner)
-        : 4;
+    // Ein perfekter Tipp entspricht exakt dem echten Ergebnis
+    const perfectTip = { goals_a: match.goals_a_real, goals_b: match.goals_b_real };
+    const realOutcome = { goals_a: match.goals_a_real, goals_b: match.goals_b_real };
 
-      const { total } = calculateDetailedMatchPoints(userTip, simActual, simWinnerPoints);
-      remainingMatchPotential += total;
-    });
-
-    // --- C) OFFENE BONUSFRAGEN POTENZIAL ---
-    let remainingBonusPotential = 0;
-    const userBonus = allBonusTips?.filter(b => b.player_id === pId || b.user_id === pId) || [];
+    // Punkte berechnen, die dieser perfekte Tipp gebracht hätte
+    const { total } = calculateDetailedMatchPoints(perfectTip, realOutcome, simWinnerPoints);
     
-    userBonus.forEach(b => {
-      if (!b.real_answer || b.real_answer === "EMPTY") {
-        if (b.user_answer && b.user_answer.trim() !== "") {
-          remainingBonusPotential += (POINTS_CONFIG.BONUS_QUESTION_BASE || 20);
-        }
-      }
-    });
+    // 1. Zum Gesamttopf für Spieltipps addieren
+    maxSpielTippsTotal += total;
 
-    // --- D) GESAMTERGEBNIS ZUSAMMENFÜHREN ---
-    const maxPossiblePoints = achievedPoints + remainingMatchPotential + remainingBonusPotential;
-
-    statsEntries.push({
-      player_id: pId,
-      username: player.display_name, // ANGEPASST: Nutzt jetzt display_name (z.B. "A8so")
-      current_points: achievedPoints,
-      max_points: maxPossiblePoints,
-      updated_at: new Date().toISOString()
-    });
-  }
-
-  // --- E) IN DIE DATABASE SPEICHERN ---
-  if (statsEntries.length > 0) {
-    const { error } = await supabase
-      .from("user_ranking_stats")
-      .upsert(statsEntries, { onConflict: "player_id" });
-
-    if (error) {
-      console.error("[MAX-POINTS] ❌ Fehler beim Speichern der Max-Points-Statistiken:", error.message);
-    } else {
-      console.log(`[MAX-POINTS] 🎉 Max-Points für ${statsEntries.length} Spieler erfolgreich aktualisiert!`);
+    // 2. Zur jeweiligen Phase addieren (match.phase_id)
+    const phaseKey = String(match.phase_id || "1");
+    if (maxPointsPerPhase[phaseKey] !== undefined) {
+      maxPointsPerPhase[phaseKey] += total;
     }
+
+    // 3. Zur jeweiligen Gruppe addieren (z.B. "Gruppe A" -> "A")
+    if (match.group_name) {
+      const groupKey = match.group_name.replace("Gruppe ", "").trim();
+      
+      if (!maxPointsPerGroup[groupKey]) {
+        maxPointsPerGroup[groupKey] = 0;
+      }
+      maxPointsPerGroup[groupKey] += total;
+    }
+  });
+
+  // =========================================================================
+  // STEP B: PROGNOSEN / BONUS BERECHNEN
+  // =========================================================================
+  const resolvedBonusQuestions = new Set(
+    allBonusTips
+      ?.filter(b => b.real_answer && b.real_answer !== "EMPTY")
+      .map(b => b.question)
+  );
+  
+  const maxPrognosenTotal = resolvedBonusQuestions.size * (POINTS_CONFIG.BONUS_QUESTION_BASE || 20);
+
+  // =========================================================================
+  // STEP C: ALS EINZIGES JSON-OBJEKT IN SYSTEM_CONFIG SPEICHERN
+  // =========================================================================
+    const { error } = await supabase
+    .from("system_config")
+    .update({
+      max_points_tips: maxSpielTippsTotal,
+      max_points_prognosis: maxPrognosenTotal 
+      // Hinweis: Wenn du die Phasen- und Gruppen-Breakdowns ("phases" und "groups") 
+      // später auch in der Datenbank sichern willst, müsstest du dafür in Supabase 
+      // noch zwei Spalten vom Typ 'jsonb' hinzufügen (z.B. max_points_phases).
+    })
+    .eq("id", 1); // Aktualisiert genau die Zeile, die wir im Screenshot sehen
+
+  if (error) {
+    console.error("[STATS] ❌ Fehler beim Speichern der Max-Werte in system_config:", error.message);
+  } else {
+    console.log("[STATS] 🎉 Differenzierte globale Max-Werte erfolgreich in system_config aktualisiert!");
   }
 
-  return statsEntries;
+  // Wir geben das Objekt trotzdem zurück, falls du es im Frontend direkt weiterverwendest
+  return {
+    max_spiel_tipps: maxSpielTippsTotal,
+    max_prognosen: maxPrognosenTotal,
+    phases: maxPointsPerPhase,
+    groups: maxPointsPerGroup
+  };
 }
