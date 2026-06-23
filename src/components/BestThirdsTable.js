@@ -11,20 +11,22 @@ function BestThirdsTable({
   manualRanks = {}, 
   onSaveManualRank, 
   isSubmitted, 
-  canEditRanks = true // Steuert, ob alle 72 Spiele eingetragen sind
+  canEditRanks = true // Steuert, ob alle Spiele eingetragen sind & der User Admin ist
 }) {
   
   if (!teams || teams.length === 0) return null;
 
   // --- 1. LOGIK: RELEVANTEN GLEICHSTAND AN DER QUALIFIKATIONSGRENZE PRÜFEN ---
-  const cutoffIndex = 7; // 8. Platz (Index 7) ist die Grenze
+  const cutoffIndex = 7; // 8. Platz (Index 7) ist die Grenze für das Weiterkommen
   const targetTeam = teams[cutoffIndex];
   const nextTeam = teams[cutoffIndex + 1];
 
-  const isBorderTied = targetTeam && nextTeam &&
+  const isBorderTied = !!(
+    targetTeam && nextTeam &&
     targetTeam.points === nextTeam.points &&
     targetTeam.diff === nextTeam.diff &&
-    targetTeam.goals === nextTeam.goals;
+    targetTeam.goals === nextTeam.goals
+  );
 
   const tiedTeams = isBorderTied 
     ? teams.filter(team => 
@@ -34,14 +36,17 @@ function BestThirdsTable({
       )
     : [];
 
-  // --- NEU: Box NUR anzeigen bei echtem Gleichstand UND wenn alle Spiele eingetragen sind ---
+  // Box NUR anzeigen bei echtem Gleichstand an der Grenze UND wenn die Bearbeitung freigegeben ist
   const showTieBox = tiedTeams.length > 0 && canEditRanks;
+  
+  // Kombinierter Status für Interaktionen und Styling
+  const isDisabled = isSubmitted || !canEditRanks;
 
   return (
     <div style={BEST_THIRDS_STYLES.container}>
       <h3 style={BEST_THIRDS_STYLES.title}>Rangliste der Gruppendritten</h3>
 
-      {/* --- FEHLERMELDUNG & MANUELLE STICHWAHL (Wird erst nach 72 Spielen sichtbar) --- */}
+      {/* --- MANUELLE STICHWAHL (Wird eingeblendet, wenn Admin aktiv & Gruppenphase vorbei) --- */}
       {showTieBox && (
         <div style={BEST_THIRDS_STYLES.errorBox}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
@@ -69,15 +74,15 @@ function BestThirdsTable({
                     placeholder="Rang"
                     value={manualRanks[displayName] || ""}
                     onChange={(e) => {
-                      if (typeof onSaveManualRank === 'function' && canEditRanks) {
+                      if (typeof onSaveManualRank === 'function') {
                         onSaveManualRank(displayName, e.target.value);
                       }
                     }}
-                    disabled={isSubmitted || !canEditRanks}
+                    disabled={isDisabled}
                     style={{
                       ...BEST_THIRDS_STYLES.tieInput,
-                      backgroundColor: (!canEditRanks) ? "#edf2f7" : "white",
-                      cursor: (!canEditRanks) ? "not-allowed" : "text"
+                      backgroundColor: isDisabled ? "#edf2f7" : "white",
+                      cursor: isDisabled ? "not-allowed" : "text"
                     }}
                   />
                 </div>

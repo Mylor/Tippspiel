@@ -3,29 +3,23 @@ import TipInput from './TipInput';
 import { FlagIcon } from '../Utils/teamUtils'; 
 import { BRACKET_STYLES, PHASE_HEIGHTS } from '../Utils/uiConstants';
 
-// Fixe Höhe einer Match-Box inklusive Label und Tipp-Feld
 const BOX_HEIGHT = 135;
 
 const KOBracket = ({ 
   koByRound, tips, phase, roundNames, treeHeight, getTopPosition, 
   getTeamFromPrevious, resolveSlot, context, KO_STRUCTURE, 
-  saveTip, deleteKORound, isAdmin 
+  saveTip, deleteKORound, isAdmin,
+  isReadOnly = false // Verhindert Eingaben im gesamten KO-Baum (z.B. auf der Result Page)
 }) => {
 
-  // Lade-Zustand, falls Daten noch nicht bereit sind
   if (!phase) return <div style={BRACKET_STYLES.loading}>Lade Turnierdaten...</div>;
 
-  // Fallback für Rundennamen, falls diese nicht über Props kommen
   const safeRoundNames = roundNames || { 
     1: "Sechzehntelfinale", 2: "Achtelfinale", 3: "Viertelfinale", 4: "Halbfinale", 5: "Finale" 
   };
   
-  // Bestimmt, ab welcher Runde der Baum gezeichnet wird (wichtig für die Phasen-Ansicht)
   const startIdxOfPhase = phase.id <= 2 ? 0 : phase.id - 2;
 
-  /**
-   * TeamRow: Interne Hilfskomponente für die Darstellung eines Teams innerhalb eines Spiels.
-   */
   const TeamRow = ({ teamName, side, isFirst, winningSide }) => {
     const isWinner = winningSide === side;
     return (
@@ -48,7 +42,7 @@ const KOBracket = ({
   return (
     <div style={BRACKET_STYLES.viewport(PHASE_HEIGHTS[phase.id])}>
       
-      {/* HEADER: Anzeige der Rundennamen und Reset-Optionen pro Spalte */}
+      {/* HEADER: Spalten-Reset-Buttons ausblenden bei isReadOnly */}
       <div style={BRACKET_STYLES.headerRow}>
         {Object.keys(koByRound)
           .sort((a, b) => Number(a) - Number(b))
@@ -56,14 +50,14 @@ const KOBracket = ({
           .map(round => (
           <div key={round} style={BRACKET_STYLES.headerColumn}>
             <span style={BRACKET_STYLES.roundTitle}>{Number(round) === 5 ? "Finale" : safeRoundNames[round]}</span>
-            {(!phase?.is_submitted || isAdmin) && (
+            {!isReadOnly && (!phase?.is_submitted || isAdmin) && (
               <button onClick={() => deleteKORound(Number(round), phase.id)} style={BRACKET_STYLES.resetButton}>Reset</button>
             )}
           </div>
         ))}
       </div>
 
-      {/* DER TURNIERBAUM: Die eigentliche Visualisierung der Spiele */}
+      {/* DER TURNIERBAUM */}
       <div style={BRACKET_STYLES.treeContainer(treeHeight)}>
         {Object.keys(koByRound)
           .sort((a, b) => Number(a) - Number(b))
@@ -79,16 +73,19 @@ const KOBracket = ({
                   const currentTop = getTopPosition(actualRoundIdx, matchIndex);
                   const nextTop = getTopPosition(actualRoundIdx + 1, Math.floor(matchIndex / 2));
 
-                  // LOGIK: Woher kommen die Teams für dieses Spiel?
                   let teamA = getTeamFromPrevious(actualRoundIdx, matchIndex, "A") || "?";
                   let teamB = getTeamFromPrevious(actualRoundIdx, matchIndex, "B") || "?";
 
-                  // LOGIK: Wer hat das Spiel gewonnen?
+                  // KORREKTUR: Validiert, dass BEIDE Tore komplett ausgefüllt sind
+                  const hasValidScore = tip && 
+                    tip.goals_a !== null && tip.goals_a !== undefined && tip.goals_a !== "" &&
+                    tip.goals_b !== null && tip.goals_b !== undefined && tip.goals_b !== "";
+
                   const winningSide = (() => {
                     if (!tip) return null;
-                    const gA = (tip.goals_a !== null && tip.goals_a !== undefined && tip.goals_a !== "") ? Number(tip.goals_a) : null;
-                    const gB = (tip.goals_b !== null && tip.goals_b !== undefined && tip.goals_b !== "") ? Number(tip.goals_b) : null;
-                    if (gA !== null && gB !== null) {
+                    if (hasValidScore) {
+                      const gA = Number(tip.goals_a);
+                      const gB = Number(tip.goals_b);
                       if (gA > gB) return "1";
                       if (gB > gA) return "2";
                     }
@@ -98,42 +95,30 @@ const KOBracket = ({
                   return (
                     <div key={m.id} style={{ position: "absolute", top: `${currentTop}px`, left: `${visibleIdx * 300}px`, height: `${BOX_HEIGHT}px` }}>
                       
-                      {/* OPTIMIERTES LABEL MIT SPIELNUMMER-BADGE */}
-                      <div style={{ 
-                        ...BRACKET_STYLES.matchLabel, 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        gap: '6px' 
-                      }}>
-                        {/* Kleine, kompakte Spielnummer-Plakette */}
+                      <div style={{ ...BRACKET_STYLES.matchLabel, display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <span style={{
-                          backgroundColor: '#e2e8f0',
-                          color: '#475569',
-                          fontWeight: '700',
-                          padding: '1px 5px',
-                          borderRadius: '4px',
-                          fontSize: '0.65rem',
-                          lineHeight: '1',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center'
+                          backgroundColor: '#e2e8f0', color: '#475569', fontWeight: '700', padding: '1px 5px', borderRadius: '4px', fontSize: '0.65rem', lineHeight: '1', display: 'inline-flex', alignItems: 'center', justifyContent: 'center'
                         }}>
                           {m.match_no || m.match_order}
                         </span>
-                        
-                        {/* Runden-Bezeichner */}
                         <span>
                           {actualRoundIdx === 4 ? (matchIndex === 1 ? "Spiel um Platz 3" : "Finale") : `${safeRoundNames[round]} ${matchIndex + 1}`}
                         </span>
                       </div>
 
-                      {/* SPIEL-BOX */}
                       <div style={BRACKET_STYLES.matchBox}>
                         <TeamRow teamName={teamA} side="1" isFirst winningSide={winningSide} />
                         <TeamRow teamName={teamB} side="2" isFirst={false} winningSide={winningSide} />
                         
                         <div style={BRACKET_STYLES.tipContainer}>
-                          {isAdmin ? (
+                          {isReadOnly ? (
+                            <div style={BRACKET_STYLES.finalResult}>
+                              {/* KORREKTUR: Nutzt jetzt den sicheren hasValidScore Check */}
+                              {hasValidScore 
+                                ? `${tip.goals_a} : ${tip.goals_b}` 
+                                : (tip?.winner ? (String(tip.winner) === "1" ? teamA : teamB) : "-")}
+                            </div>
+                          ) : isAdmin ? (
                             <TipInput 
                               teamA={teamA} teamB={teamB} isKO onSave={(a,b,w) => saveTip(m.id,a,b,w)} 
                               initialGoalsA={tip?.goals_a} initialGoalsB={tip?.goals_b} initialWinner={tip?.winner} 
@@ -143,10 +128,12 @@ const KOBracket = ({
                             !phase?.is_submitted ? (
                               tip ? (
                                 <div style={BRACKET_STYLES.savedTipDisplay}>
-                                  {(tip.goals_a !== null && tip.goals_a !== undefined && tip.goals_a !== "") 
+                                  {/* KORREKTUR: Auch hier gegen unvollständige Teiltipps abgesichert */}
+                                  {hasValidScore 
                                     ? `${tip.goals_a} : ${tip.goals_b}` 
                                     : `${String(tip.winner) === "1" ? teamA : teamB}`}
-                                  {tip.goals_a !== null && tip.goals_a !== undefined && tip.goals_a !== "" && Number(tip.goals_a) === Number(tip.goals_b) && (
+                                  
+                                  {hasValidScore && Number(tip.goals_a) === Number(tip.goals_b) && (
                                     <span style={{ fontSize: "0.65rem", color: "#666", fontWeight: "normal" }}>
                                       {String(tip.winner) === "1" ? teamA : teamB}
                                     </span>
@@ -164,9 +151,9 @@ const KOBracket = ({
                               )
                             ) : (
                               <div style={BRACKET_STYLES.finalResult}>
-                                {tip?.goals_a !== null && tip?.goals_a !== undefined && tip?.goals_a !== "" 
+                                {hasValidScore 
                                   ? `${tip.goals_a} : ${tip.goals_b}` 
-                                  : (tip?.winner ? (Number(tip.winner) === 1 ? teamA : teamB) : "-")}
+                                  : (tip?.winner ? (String(tip.winner) === "1" ? teamA : teamB) : "-")}
                               </div>
                             )
                           )}
@@ -179,7 +166,6 @@ const KOBracket = ({
                           <div style={BRACKET_STYLES.lineHorizontal} />
                           <div style={{ 
                             ...BRACKET_STYLES.lineVertical,
-                            top: "82px" * 1 === 82 ? "82px" : "82px", // Behält die originale dynamische Top-Berechnung bei
                             top: matchIndex % 2 === 0 ? "82px" : `calc(82px - ${Math.abs(nextTop - currentTop)}px)`, 
                             height: `${Math.abs(nextTop - currentTop)}px`, 
                           }} />

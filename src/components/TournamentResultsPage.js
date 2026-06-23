@@ -31,20 +31,18 @@ const KO_STRUCTURE = {
 const ROUND_NAMES = { 1: "Sechzehntelfinale", 2: "Achtelfinale", 3: "Viertelfinale", 4: "Halbfinale", 5: "Finale" };
 const TREE_HEIGHT = 2000;
 
-function AdminResultsPage({ phaseId, onUpdate }) {
+function TournamentResultsPage({ phaseId, onUpdate, isAdmin = false }) {
   const [matches, setMatches] = useState([]);
   const [loading, setLoading] = useState(true);
   const [manualRanks, setManualRanks] = useState({}); 
   const groupRef = useRef(null);
-  
-  // HIER NEU: Referenz für den KO-Baum-Container, um die kleinen Knöpfe gezielt zu greifen
   const koBracketRef = useRef(null);
 
   useEffect(() => {
     fetchData();
   }, [phaseId]);
 
-  // HIER NEU: Dieser Effekt wirft die kleinen Reset-Buttons hochkant raus, sobald fertig geladen ist
+  // Versteckt Reset-Buttons im KO-Baum (Sicherheitsnetz)
   useEffect(() => {
     if (!loading && koBracketRef.current) {
       const buttons = koBracketRef.current.querySelectorAll("button");
@@ -75,6 +73,7 @@ function AdminResultsPage({ phaseId, onUpdate }) {
   }
 
   async function forceHardResetKO() {
+    if (!isAdmin) return; 
     if (!window.confirm("Wirklich ALLE KO-Ergebnisse löschen und den gesamten KO-Baum auf Platzhalter zurücksetzen?")) return;
     setLoading(true);
     
@@ -95,6 +94,7 @@ function AdminResultsPage({ phaseId, onUpdate }) {
   }
 
   async function saveAdminManualRank(teamName, rank) {
+    if (!isAdmin) return; 
     const val = rank === "" ? null : Number(rank);
     await supabase.from("real_manual_rank").upsert([{ team_name: teamName, manual_rank: val }], { onConflict: 'team_name' });
     setManualRanks(prev => ({ ...prev, [teamName]: val }));
@@ -106,6 +106,7 @@ function AdminResultsPage({ phaseId, onUpdate }) {
   }
 
   async function resetManualRanksForGroup(groupName) {
+    if (!isAdmin) return;
     const groupMatches = matches.filter(m => m.group_name === groupName);
     const teamsInGroup = [...new Set(groupMatches.flatMap(m => [m.team_a, m.team_b]))];
     await supabase.from("real_manual_rank").delete().in("team_name", teamsInGroup);
@@ -117,6 +118,7 @@ function AdminResultsPage({ phaseId, onUpdate }) {
   }
 
   async function saveRealResult(matchId, goalsA, goalsB, winner) {
+    if (!isAdmin) return; 
     const isReset = goalsA === "" || goalsB === "" || goalsA === null || goalsB === null;
     const gA = isReset ? null : Number(goalsA);
     const gB = isReset ? null : Number(goalsB);
@@ -146,7 +148,7 @@ function AdminResultsPage({ phaseId, onUpdate }) {
     await fetchMatches(); 
   }
 
-  if (loading) return <div style={{ padding: "20px" }}>Lade Admin-Daten...</div>;
+  if (loading) return <div style={{ padding: "20px", fontFamily: "sans-serif" }}>Lade Turnier-Daten...</div>;
 
   const realResultsAsTips = {};
   matches.forEach(m => { realResultsAsTips[m.id] = { match_id: m.id, goals_a: m.goals_a_real, goals_b: m.goals_b_real, winner: m.winner_real }; });
@@ -158,7 +160,10 @@ function AdminResultsPage({ phaseId, onUpdate }) {
   });
 
   const allGroupsArray = Object.keys(grouped).map(name => ({ id: name, teams: calculateFIFADataTable(grouped[name], realResultsAsTips, manualRanks) }));
+  
+  // Prüft, ob wirklich alle Gruppenspiele ausgetragen wurden
   const allGroupGamesFinished = matches.filter(m => m.stage === "group").every(m => m.goals_a_real !== null);
+  
   const bestThirds = getBestThirds(allGroupsArray, manualRanks);
   const groupResults = {}; allGroupsArray.forEach(g => { groupResults[g.id] = g.teams.map(t => t.team); });
 
@@ -171,43 +176,73 @@ function AdminResultsPage({ phaseId, onUpdate }) {
   const tournamentContext = { groups: groupResults, thirdPlaces: bestThirds.slice(0, 8), tips: realResultsAsTips, phaseId: phaseId };
 
   return (
-    <div style={{ display: "flex", gap: "50px", padding: "20px", width: "max-content" }}>
+    <div style={{ display: "flex", gap: "50px", padding: "20px", width: "max-content", fontFamily: "sans-serif" }}>
+      
+      {/* LINKER BEREICH: Gruppen & Beste Dritte */}
       <div ref={groupRef} style={{ flex: "0 0 auto" }}>
-        <h2 style={{ color: "#dc2626" }}>Admin: Gruppen</h2>
+        <h2 style={{ color: isAdmin ? "#dc2626" : "#2563eb", marginBottom: "20px" }}>
+          {isAdmin ? "🛠️ Admin: Gruppen-Ergebnisse" : "⚽ Reale Tabellenstände"}
+        </h2>
         {Object.keys(grouped).sort().map(name => (
-          <GroupTable key={name} groupName={name} matches={grouped[name]} tips={realResultsAsTips} tableData={allGroupsArray.find(g => g.id === name)?.teams || []} onSaveTip={saveRealResult} isAdmin={true} manualRanks={manualRanks} onSaveManualRank={saveAdminManualRank} />
+          <GroupTable 
+            key={name} 
+            groupName={name} 
+            matches={grouped[name]} 
+            tips={realResultsAsTips} 
+            tableData={allGroupsArray.find(g => g.id === name)?.teams || []} 
+            onSaveTip={isAdmin ? saveRealResult : null} 
+            isAdmin={isAdmin} 
+            manualRanks={manualRanks} 
+            onSaveManualRank={isAdmin ? saveAdminManualRank : null} 
+          />
         ))}
-        <BestThirdsTable teams={bestThirds} manualRanks={manualRanks} isAdmin={true} onSaveManualRank={saveAdminManualRank} canEditRanks={allGroupGamesFinished} />
+        
+        {/* Hier ist die saubere Übergabe an die BestThirdsTable */}
+        <BestThirdsTable 
+          teams={bestThirds} 
+          manualRanks={manualRanks} 
+          onSaveManualRank={saveAdminManualRank} 
+          canEditRanks={isAdmin && allGroupGamesFinished} 
+        />
       </div>
 
+      {/* RECHTER BEREICH: KO-Baum */}
       <div style={{ flex: "1", minWidth: "600px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "24px", marginBottom: "20px" }}>
-            <h2 style={{ color: "#dc2626", margin: 0 }}>Admin: KO-Baum</h2>
+          <h2 style={{ color: isAdmin ? "#dc2626" : "#2563eb", margin: 0 }}>
+            {isAdmin ? "🛠️ Admin: KO-Baum steuern" : "🏆 Realer KO-Baum"}
+          </h2>
+          
+          {isAdmin && (
             <button 
               onClick={forceHardResetKO} 
               style={{ backgroundColor: "#ef4444", color: "white", padding: "10px 20px", borderRadius: "5px", border: "none", cursor: "pointer", fontWeight: "bold" }}
             >
               KO-Baum Reset
             </button>
+          )}
         </div>
         
-        {/* HIER GEÄNDERT: ref={koBracketRef} hinzugefügt */}
         <div ref={koBracketRef}>
           <KOBracket 
-            koByRound={koByRound} tips={realResultsAsTips} treeHeight={TREE_HEIGHT} roundNames={ROUND_NAMES}
+            koByRound={koByRound} 
+            tips={realResultsAsTips} 
+            treeHeight={TREE_HEIGHT} 
+            roundNames={ROUND_NAMES}
             phase={{ id: phaseId }} 
             getTopPosition={(r, m) => getTopPosition(r, m, TREE_HEIGHT, 300)}
             getTeamFromPrevious={(r, m, s) => getTeamFromPrevious(r, m, s, koByRound, realResultsAsTips, tournamentContext)}
             resolveSlot={(slot) => resolveSlot(slot, tournamentContext)}
-            saveTip={saveRealResult} 
+            saveTip={isAdmin ? saveRealResult : () => {}} 
             deleteKORound={() => {}} 
-            isAdmin={true} 
+            isAdmin={isAdmin} 
             KO_STRUCTURE={KO_STRUCTURE}
           />
         </div>
       </div>
+
     </div>
   );
 }
 
-export default AdminResultsPage;
+export default TournamentResultsPage;

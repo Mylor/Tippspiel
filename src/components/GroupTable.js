@@ -10,20 +10,24 @@ const GroupTable = ({
   dbTips = {}, 
   tableData = [], 
   isSubmitted,     // Globale Phasensperre (Read-Only)
-  isGroupSaved,    // NEU: Lokaler Speicherstatus dieser Gruppe
+  isGroupSaved,    // Lokaler Speicherstatus dieser Gruppe
   onDeleteTips, 
   onSaveTip,
   manualRanks = {},
   onSaveManualRank,
   onSaveGroup,
-  isAdmin = false 
+  isAdmin = false,
+  isReadOnly = false // Erzwingt reinen Ansichtsmodus
 }) => {
+
+  // AUTOMATISCHER SCHUTZ: Wenn keine Speicherfunktion da ist oder isReadOnly aktiv ist
+  const isEffectiveReadOnly = isReadOnly || !onSaveTip;
 
   const sortedMatches = useMemo(() => {
     return [...matches].sort((a, b) => (a.match_order || 0) - (b.match_order || 0));
   }, [matches]);
 
-  // Prüfen, ob alle Spiele der Gruppe ausgefüllt sind (für den Aktivierungszustand des Speicherbuttons)
+  // Prüfen, ob alle Spiele der Gruppe ausgefüllt sind
   const isGroupFinished = useMemo(() => {
     return matches.length > 0 && matches.every(m => {
       const tip = tips[m.id];
@@ -35,15 +39,37 @@ const GroupTable = ({
 
   // Ermittlung von Gleichstand für die Stichwahl
   const tiedTeams = useMemo(() => {
-    return tableData.filter((teamA, i) => 
-      tableData.some((teamB, j) => 
-        i !== j && 
-        teamA.points === teamB.points && 
-        teamA.diff === teamB.diff && 
-        teamA.goals === teamB.goals
-      )
-    );
-  }, [tableData]);
+  const ties = new Set();
+
+  for (let i = 0; i < tableData.length - 1; i++) {
+    const teamA = tableData[i];
+    const teamB = tableData[i + 1];
+
+    // Haben zwei aufeinanderfolgende Teams exakt dieselben Gesamtwerte?
+    if (
+      teamA.points === teamB.points &&
+      teamA.diff === teamB.diff &&
+      teamA.goals === teamB.goals
+    ) {
+      // Suchen des direkten Duells dieser beiden Teams in den Matches
+      const directMatch = matches.find(m => 
+        (m.team_a === teamA.team && m.team_b === teamB.team) ||
+        (m.team_a === teamB.team && m.team_b === teamA.team)
+      );
+
+      const tip = directMatch ? tips[directMatch.id] : null;
+
+      // Wenn das Spiel noch nicht getippt wurde oder Unentschieden ausging,
+      // liegt ein echter, sportlich unauflösbarer Gleichstand vor -> Stichwahl aktivieren!
+      if (!tip || Number(tip.goals_a) === Number(tip.goals_b)) {
+        ties.add(teamA);
+        ties.add(teamB);
+      }
+    }
+  }
+
+  return Array.from(ties);
+}, [tableData, matches, tips]);
 
   const hasTie = tiedTeams.length > 0;
 
@@ -65,33 +91,39 @@ const GroupTable = ({
         <div style={GROUP_TABLE_STYLES.headerContainer}>
           <h3 style={GROUP_TABLE_STYLES.groupTitle}>Gruppe {groupName}</h3>
           
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            {/* Speichern-Button verschwindet, sobald die Gruppe gesichert ist */}
-            {!isGroupSaved && !isSubmitted && !isAdmin && (
-              <button 
-                disabled={!canSaveGroup}
-                onClick={() => onSaveGroup(groupName)}
-                style={{
-                  ...saveGroupBtnStyle,
-                  backgroundColor: canSaveGroup ? "#22c55e" : "#bbf7d0", 
-                  cursor: canSaveGroup ? "pointer" : "not-allowed"
-                }}
-              >
-                Gruppe Speichern
-              </button>
-            )}
-            
-            {/* KORREKTUR: Reset-Button bleibt sichtbar, solange die Phase nicht final abgegeben wurde */}
-            {!isSubmitted && !isAdmin && (
-              <button onClick={() => onDeleteTips(groupName)} style={GROUP_TABLE_STYLES.resetButton}>
-                Reset
-              </button>
-            )}
-          </div>
+          {!isEffectiveReadOnly && (
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+              {!isGroupSaved && !isSubmitted && !isAdmin && (
+                <button 
+                  disabled={!canSaveGroup}
+                  onClick={() => onSaveGroup(groupName)}
+                  style={{
+                    ...saveGroupBtnStyle,
+                    backgroundColor: canSaveGroup ? "#22c55e" : "#bbf7d0", 
+                    cursor: canSaveGroup ? "pointer" : "not-allowed"
+                  }}
+                >
+                  Gruppe Speichern
+                </button>
+              )}
+              
+              {!isSubmitted && !isAdmin && (
+                <button onClick={() => onDeleteTips(groupName)} style={GROUP_TABLE_STYLES.resetButton}>
+                  Reset
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {sortedMatches.map((m) => {
           const tip = tips[m.id];
+          
+          // KORREKTUR: Validiert, dass Tore weder null, undefined noch ein leerer String sind
+          const hasValidScore = tip && 
+            tip.goals_a !== null && tip.goals_a !== undefined && tip.goals_a !== "" &&
+            tip.goals_b !== null && tip.goals_b !== undefined && tip.goals_b !== "";
+
           return (
             <div key={m.id} style={GROUP_TABLE_STYLES.matchCard}>                  
               <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
@@ -106,8 +138,7 @@ const GroupTable = ({
                   </div>
                   
                   <div style={GROUP_TABLE_STYLES.scoreDisplayContainer}>
-                    {/* Boxen frieren ein, wenn die Phase beendet ODER die Gruppe gespeichert wurde */}
-                    {(!isSubmitted && !isGroupSaved || isAdmin) ? (
+                    {!isEffectiveReadOnly && (!isSubmitted && !isGroupSaved || isAdmin) ? (
                       <TipInput 
                         isKO={false} 
                         initialGoalsA={tip?.goals_a} 
@@ -116,7 +147,8 @@ const GroupTable = ({
                       />
                     ) : (
                       <div style={GROUP_TABLE_STYLES.savedScore}>
-                        {tip && tip.goals_a !== "" ? `${tip.goals_a} : ${tip.goals_b}` : "- : -"}
+                        {/* KORREKTUR: Nutzt jetzt den sicheren hasValidScore Check */}
+                        {hasValidScore ? `${tip.goals_a} : ${tip.goals_b}` : "- : -"}
                       </div>
                     )}  
                   </div>
@@ -190,12 +222,16 @@ const GroupTable = ({
                     max="4"
                     value={manualRanks[row.team] || ""}
                     onChange={(e) => {
-                      if (typeof onSaveManualRank === 'function') {
+                      if (typeof onSaveManualRank === 'function' && !isEffectiveReadOnly) {
                         onSaveManualRank(row.team, e.target.value);
                       }
                     }}
-                    disabled={isSubmitted || isGroupSaved}
-                    style={GROUP_TABLE_STYLES.manualRankInput}
+                    disabled={isEffectiveReadOnly || isSubmitted || isGroupSaved} 
+                    style={{
+                      ...GROUP_TABLE_STYLES.manualRankInput,
+                      backgroundColor: (isEffectiveReadOnly || isSubmitted || isGroupSaved) ? "#edf2f7" : "#fff",
+                      cursor: (isEffectiveReadOnly || isSubmitted || isGroupSaved) ? "not-allowed" : "text"
+                    }}
                     placeholder="-"
                   />
                 </div>

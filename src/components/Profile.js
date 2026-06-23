@@ -4,17 +4,34 @@ import { RetroJersey } from '../Utils/RetroJersey';
 import TeamDropdown from '../Utils/TeamDropdown';
 
 const PRESET_COLORS = [
+  // SCHWARZ / GRAU
   { name: 'Stealth Schwarz', hex: '#000000' },
   { name: 'Carbon Grau', hex: '#4B5563' },
+  
+  // GRÜNTÖNE
+  { name: 'Klassisch Grün', hex: '#15803D' },
   { name: 'Matrix Grün', hex: '#10B981' },
-  { name: 'Cyan Blast', hex: '#06B6D4' },
-  { name: 'Sky Blau', hex: '#0EA5E9' },
-  { name: 'Deep Indigo', hex: '#6366F1' },
-  { name: 'Vivid Violett', hex: '#8B5CF6' },
-  { name: 'Hot Pink', hex: '#EC4899' },
+  { name: 'Neon Grün', hex: '#22C55E' },
+  { name: 'Frische Minze', hex: '#6EE7B7' },
+  { name: 'Electric Lime', hex: '#A3E635' },
+  
+  // GELB- & ORANGETÖNE
+  { name: 'Zitronen Gelb', hex: '#FACC15' },
+  { name: 'Neon Gelb', hex: '#EAB308' },
   { name: 'Amber Gold', hex: '#F59E0B' },
   { name: 'Sunset Orange', hex: '#F97316' },
+  
+  // ROT- & PINKTÖNE
   { name: 'Crimson Rot', hex: '#EF4444' },
+  { name: 'Hot Pink', hex: '#EC4899' },
+  { name: 'Deep Berry', hex: '#9D174D' },
+  
+  // BLAU- & VIOLETTTÖNE
+  { name: 'Vivid Violett', hex: '#8B5CF6' },
+  { name: 'Deep Indigo', hex: '#6366F1' },
+  { name: 'Königsblau', hex: '#1D4ED8' },
+  { name: 'Sky Blau', hex: '#0EA5E9' },
+  { name: 'Cyan Blast', hex: '#06B6D4' },
 ];
 
 export default function ProfilePage({ player, onSave, onBack }) {

@@ -88,12 +88,17 @@ export const calculateBonusPoints = (qId, userAnswer, realAnswer, basePoints = 2
   const userStr = String(userAnswer).trim().toLowerCase();
   const realStr = String(realAnswer).trim().toLowerCase();
 
-  if (userStr === realStr) return basePoints;
+  // NEU: Am Komma splitten, um Mehrfach-Antworten der Admins zu unterstützen (z.B. "kroatien, kanada")
+  const realAnswersArray = realStr.split(",").map(item => item.trim()).filter(Boolean);
+
+  // NEU: Prüfen, ob die Antwort des Users in der Liste der richtigen Antworten existiert
+  if (realAnswersArray.includes(userStr)) return basePoints;
 
   const partialPointsQuestions = ["total_goals", "extra_times", "own_goals"];
   if (partialPointsQuestions.includes(qId)) {
     const userNum = parseInt(userStr, 10);
-    const realNum = parseInt(realStr, 10);
+    // Da es bei Zahlenfragen nur eine richtige Antwort gibt, nehmen wir das erste Element [0]
+    const realNum = parseInt(realAnswersArray[0], 10);
 
     if (!isNaN(userNum) && !isNaN(realNum)) {
       if (Math.abs(userNum - realNum) === 1) {

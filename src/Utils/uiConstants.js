@@ -477,12 +477,23 @@ export const GROUP_TABLE_STYLES = {
   headerContainer: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px" },
   groupTitle: { margin: 0, color: "#333" },
   resetButton: { padding: "4px 8px", fontSize: "0.75em", backgroundColor: "#fff", border: "1px solid #ccc", borderRadius: "4px", cursor: "pointer", color: "#666" },
-  matchCard: { marginBottom: "12px", padding: "10px", backgroundColor: "#f8f9fa", borderRadius: "8px", fontSize: "0.85em", border: "1px solid #edf2f7", width: "360px", position: "relative" },
-  matchFlex: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" },
-  teamAContainer: { display: "flex", alignItems: "center", gap: "6px", flex: 1, justifyContent: "flex-end" },
-  teamBContainer: { display: "flex", alignItems: "center", gap: "6px", flex: 1 },
-  teamName: { fontWeight: "600", color: "#181c22" },
-  scoreDisplayContainer: { minWidth: "60px", textAlign: "center" },
+  matchCard: { marginBottom: "12px", padding: "10px", backgroundColor: "#f8f9fa", borderRadius: "8px", fontSize: "0.85em", border: "1px solid #edf2f7", width: "390px", position: "relative" },
+  
+  // 1. ZENTRIERTE AUSRICHTUNG DER REIHE
+  matchFlex: { display: "flex", alignItems: "center", justifyContent: "center", gap: "10px" },
+  
+  // 2. LINKES TEAM (Rechtsbündig orientiert, bricht bei Platzmangel nicht das Layout)
+  teamAContainer: { display: "flex", alignItems: "center", gap: "6px", flex: 1, justifyContent: "flex-end", minWidth: 0 },
+  
+  // 3. RECHTES TEAM (Linksbündig orientiert, verhält sich spiegelverkehrt zu Team A)
+  teamBContainer: { display: "flex", alignItems: "center", gap: "6px", flex: 1, justifyContent: "flex-start", minWidth: 0 },
+  
+  // 4. TEXTSCHUTZ (Verhindert, dass lange Namen wie "Elfenbeinküste" umbrechen oder Boxen wegdrücken)
+  teamName: { fontWeight: "600", color: "#181c22", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  
+  // 5. ABSOLUT FESTE MITTE (Inputs stehen dadurch gruppenübergreifend exakt auf einer vertikalen Achse)
+  scoreDisplayContainer: { width: "90px", flexShrink: 0, display: "flex", justifyContent: "center", alignItems: "center" },
+  
   savedScore: { color: "#1a73e8", fontWeight: "bold", fontSize: "1.1em" },
   tableBase: { width: "100%", borderCollapse: "collapse", boxShadow: "0 2px 8px rgba(0,0,0,0.05)", backgroundColor: "#fff" },
   tableHeaderRow: { backgroundColor: "#2d80ed", color: "#ffffff", textAlign: "left" },

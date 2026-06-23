@@ -12,14 +12,15 @@ import { FORMATION_MAPPING, TEAM_SYMBOLS } from "../App";
 // --- COMPONENTS ---
 import CountdownTimer from "./CountdownTimer"; 
 import TippsPage from "./TippsPage";
-import AdminResultsPage from "./AdminResultsPage"; 
-import AdminControlCenter from "./AdminControlCenter";
+import TournamentResultsPage from "./TournamentResultsPage";
+import AdminControlCenter from "./AdminControlCenter"; 
 import PointsAnalysisPage from "./PointsAnalysisPage";
 import BonusQuestions from "./BonusQuestions";
 import SupportFeedbackPage from "./SupportFeedbackPage"; 
 import ProfilePage from "./Profile"; 
 import StatisticsPage from "./StatisticsPage";
 import MatchTendencyCard from "./MatchTendencyCard";
+import PrognoseCenter from "./PrognoseCenter"; 
 
 // --- ZENTRALE DEADLINE KONFIGURATION ---
 const PHASE_DEADLINES = {
@@ -48,7 +49,7 @@ const Dashboard = ({ player, onLogout }) => {
   
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [showDisplayName, setShowDisplayName] = useState(true);
-  const [showStatsDisplayName, setShowStatsDisplayName] = useState(true)
+  const [showStatsDisplayName, setShowStatsDisplayName] = useState(true);
 
   useEffect(() => {
     if (activePhase === "ranking") {
@@ -229,30 +230,28 @@ const Dashboard = ({ player, onLogout }) => {
   }, [allMatches]);
 
   const sortedTeams = useMemo(() => {
-      const teamScores = { Alpha: 0, Phi: 0, Gamma: 0 };
-      // IDs als Strings hinterlegen für exakten JavaScript-Vergleich
-      const excludedIds = ["27", "28", "29", "30"];
+    const teamScores = { Alpha: 0, Phi: 0, Gamma: 0 };
+    const excludedIds = ["27", "28", "29", "30"];
 
-      ranking.forEach(entry => {
-        // Höchste Sicherheitsstufe: Wir wandeln die entry.id in einen String um
-        if (excludedIds.includes(String(entry.id))) {
-          return; // Überspringt diesen Spieler AUSSCHLIESSLICH für die Team-Wertung
-        }
+    ranking.forEach(entry => {
+      if (excludedIds.includes(String(entry.id))) {
+        return; 
+      }
 
-        const teamName = FORMATION_MAPPING[entry.id]?.team;
-        if (teamName && teamScores[teamName] !== undefined) {
-          teamScores[teamName] += entry.points;
-        }
-      });
+      const teamName = FORMATION_MAPPING[entry.id]?.team;
+      if (teamName && teamScores[teamName] !== undefined) {
+        teamScores[teamName] += entry.points;
+      }
+    });
 
-      return Object.keys(teamScores)
-        .map(key => ({
-          name: key,
-          points: parseFloat(teamScores[key].toFixed(1)),
-          symbol: TEAM_SYMBOLS[key] || ""
-        }))
-        .sort((a, b) => b.points - a.points);
-    }, [ranking]);
+    return Object.keys(teamScores)
+      .map(key => ({
+        name: key,
+        points: parseFloat(teamScores[key].toFixed(1)),
+        symbol: TEAM_SYMBOLS[key] || ""
+      }))
+      .sort((a, b) => b.points - a.points);
+  }, [ranking]);
 
   if (loading) return <div style={DASHBOARD_STYLES.loadingContainer}>Dashboard wird geladen...</div>;
 
@@ -334,6 +333,15 @@ const Dashboard = ({ player, onLogout }) => {
           >
             {isSidebarCollapsed ? "🏠" : "🏠 Startseite"}
           </button>
+
+          {/* HIER NEU: Echter Turnierbaum als Reiter für ALLE Spieler sichtbar */}
+          <button 
+            onClick={() => setActivePhase("real_results")} 
+            style={{ ...getTabButtonStyle(activePhase === "real_results"), justifyContent: isSidebarCollapsed ? "center" : "flex-start" }}
+            title="Reale Ergebnisse"
+          >
+            {isSidebarCollapsed ? "🏆" : "🏆 Reale Ergebnisse"}
+          </button>
           
           <hr style={DASHBOARD_STYLES.divider} />
           {!isSidebarCollapsed && <p style={DASHBOARD_STYLES.sectionHeader}>Tipp-Runden</p>}
@@ -407,6 +415,14 @@ const Dashboard = ({ player, onLogout }) => {
             title="Statistik-Center"
           >
             {isSidebarCollapsed ? "📈" : "📈 Statistik-Center"}
+          </button>
+
+          <button 
+            onClick={() => setActivePhase("prognosis_center")} 
+            style={{ ...getTabButtonStyle(activePhase === "prognosis_center"), justifyContent: isSidebarCollapsed ? "center" : "flex-start" }}
+            title="Prognose-Center"
+          >
+            {isSidebarCollapsed ? "🔮" : "🔮 Prognose-Center"}
           </button>
           
           <hr style={DASHBOARD_STYLES.divider} />
@@ -578,15 +594,24 @@ const Dashboard = ({ player, onLogout }) => {
           <div style={DASHBOARD_STYLES.flexibleCard}>
             {activePhase === "admin_control" ? (
               <AdminControlCenter onUpdate={fetchDashboardData} />
+            
+            /* HIER GEÄNDERT: Übergabe von isAdmin={true} an die neue Komponente */
             ) : activePhase === "admin_results" ? (
-              <AdminResultsPage phaseId={systemConfig?.current_phase_id} onUpdate={fetchDashboardData} />
+              <TournamentResultsPage phaseId={systemConfig?.current_phase_id} onUpdate={fetchDashboardData} isAdmin={true} />
+            
+            /* HIER NEU: Übergabe von isAdmin={false} für die Lese-Ansicht der Spieler */
+            ) : activePhase === "real_results" ? (
+              <TournamentResultsPage phaseId={systemConfig?.current_phase_id} onUpdate={fetchDashboardData} isAdmin={false} />
+            
             ) : activePhase === "profile" ? (
               <ProfilePage player={localPlayer} onSave={handleProfileSave} onBack={() => setActivePhase("ranking")} />
             ) : activePhase === "points_analysis" ? (
               <PointsAnalysisPage userId={localPlayer.id} />
             ) : activePhase === "global_statistics" ? (
-              <StatisticsPage currentUserId={localPlayer.id} allPlayers={ranking} matches={allMatches} predictions={allPredictions} showDisplayName={showStatsDisplayName} // <-- NEU
+              <StatisticsPage currentUserId={localPlayer.id} allPlayers={ranking} matches={allMatches} predictions={allPredictions} showDisplayName={showStatsDisplayName} 
                 onToggleDisplayName={() => setShowStatsDisplayName(!showStatsDisplayName)} />    
+            ) : activePhase === "prognosis_center" ? ( 
+              <PrognoseCenter currentUserId={localPlayer.id} />
             ) : activePhase === "bonus_questions" ? (
               <BonusQuestions userId={localPlayer.id} isReadOnly={isPhase1Locked} isAdmin={localPlayer.is_admin} />
             ) : activePhase === "support_feedback" ? (
