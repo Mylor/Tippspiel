@@ -16,30 +16,30 @@ export const POINTS_CONFIG = {
   BONUS_ONE_GOAL_OFF: 1,      // NEU: Trostpunkt für exakt 1 Tor daneben bei richtiger Tendenz
 
   // KO-Runde der letzten 32
-  PROG_REACH_16: 4,        // Leichtes Weiterkommen aus der Gruppe
-  PROG_OUT_16: 8,          // Ausscheiden in der Runde der 32
+  PROG_REACH_16: 2,        // Leichtes Weiterkommen aus der Gruppe
+  PROG_OUT_16: 4,          // Ausscheiden in der Runde der 32
   
   // Achtelfinale (Dein 1,5x Verhältnis: 12 zu 8)
-  PROG_REACH_8: 12,        // Einzug ins Achtelfinale
-  PROG_OUT_8: 16,          // Ausscheiden im Achtelfinale
+  PROG_REACH_8: 6,        // Einzug ins Achtelfinale
+  PROG_OUT_8: 8,          // Ausscheiden im Achtelfinale
   
   // Viertelfinale (Nächster Schritt)
-  PROG_REACH_4: 24,        // Einzug ins Viertelfinale
-  PROG_OUT_4: 28,          // Ausscheiden im Viertelfinale
+  PROG_REACH_4: 12,        // Einzug ins Viertelfinale
+  PROG_OUT_4: 14,          // Ausscheiden im Viertelfinale
   
   // Halbfinale & Die Final-Four-Plätze
-  PROG_REACH_2: 36,        // Einzug ins Halbfinale
-  PROG_PLACE_4: 40,        // NEU: Exakt 4. Platz geworden
-  PROG_PLACE_3: 46,        // NEU: Exakt 3. Platz geworden
+  PROG_REACH_2: 24,        // Einzug ins Halbfinale
+  PROG_PLACE_4: 20,        // NEU: Exakt 4. Platz geworden
+  PROG_PLACE_3: 24,        // NEU: Exakt 3. Platz geworden
   
   // Das große Finale
-  PROG_REACH_FINAL: 50,    // Einzug ins Finale
-  PROG_VIZE: 60,           // Vize-Weltmeister
-  PROG_CHAMPION: 72,       // Weltmeister (6x ein perfekter Volltreffer!)
+  PROG_REACH_FINAL: 25,    // Einzug ins Finale
+  PROG_VIZE: 30,           // Vize-Weltmeister
+  PROG_CHAMPION: 36,       // Weltmeister 
 
   // Gruppenphase & Tabellen
-  PROG_OUT_VORRUNDE: 6,   
-  PROG_TABLE_POS: 6,       // Fester Wert für exakten Tabellenplatz
+  PROG_OUT_VORRUNDE: 3,   
+  PROG_TABLE_POS: 4,       // Fester Wert für exakten Tabellenplatz
 
   BONUS_QUESTION_BASE: 20, 
 
