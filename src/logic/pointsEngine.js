@@ -38,8 +38,8 @@ export const POINTS_CONFIG = {
   PROG_CHAMPION: 36,       // Weltmeister 
 
   // Gruppenphase & Tabellen
-  PROG_OUT_VORRUNDE: 3,   
-  PROG_TABLE_POS: 4,       // Fester Wert für exakten Tabellenplatz
+  PROG_OUT_VORRUNDE: 6,   
+  PROG_TABLE_POS: 6,       // Fester Wert für exakten Tabellenplatz
 
   BONUS_QUESTION_BASE: 20, 
 
