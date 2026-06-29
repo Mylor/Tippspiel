@@ -39,37 +39,37 @@ const GroupTable = ({
 
   // Ermittlung von Gleichstand für die Stichwahl
   const tiedTeams = useMemo(() => {
-  const ties = new Set();
+    const ties = new Set();
 
-  for (let i = 0; i < tableData.length - 1; i++) {
-    const teamA = tableData[i];
-    const teamB = tableData[i + 1];
+    for (let i = 0; i < tableData.length - 1; i++) {
+      const teamA = tableData[i];
+      const teamB = tableData[i + 1];
 
-    // Haben zwei aufeinanderfolgende Teams exakt dieselben Gesamtwerte?
-    if (
-      teamA.points === teamB.points &&
-      teamA.diff === teamB.diff &&
-      teamA.goals === teamB.goals
-    ) {
-      // Suchen des direkten Duells dieser beiden Teams in den Matches
-      const directMatch = matches.find(m => 
-        (m.team_a === teamA.team && m.team_b === teamB.team) ||
-        (m.team_a === teamB.team && m.team_b === teamA.team)
-      );
+      // Haben zwei aufeinanderfolgende Teams exakt dieselben Gesamtwerte?
+      if (
+        teamA.points === teamB.points &&
+        teamA.diff === teamB.diff &&
+        teamA.goals === teamB.goals
+      ) {
+        // Suchen des direkten Duells dieser beiden Teams in den Matches
+        const directMatch = matches.find(m => 
+          (m.team_a === teamA.team && m.team_b === teamB.team) ||
+          (m.team_a === teamB.team && m.team_b === teamA.team)
+        );
 
-      const tip = directMatch ? tips[directMatch.id] : null;
+        const tip = directMatch ? tips[directMatch.id] : null;
 
-      // Wenn das Spiel noch nicht getippt wurde oder Unentschieden ausging,
-      // liegt ein echter, sportlich unauflösbarer Gleichstand vor -> Stichwahl aktivieren!
-      if (!tip || Number(tip.goals_a) === Number(tip.goals_b)) {
-        ties.add(teamA);
-        ties.add(teamB);
+        // Wenn das Spiel noch nicht getippt wurde oder Unentschieden ausging,
+        // liegt ein echter, sportlich unauflösbarer Gleichstand vor -> Stichwahl aktivieren!
+        if (!tip || Number(tip.goals_a) === Number(tip.goals_b)) {
+          ties.add(teamA);
+          ties.add(teamB);
+        }
       }
     }
-  }
 
-  return Array.from(ties);
-}, [tableData, matches, tips]);
+    return Array.from(ties);
+  }, [tableData, matches, tips]);
 
   const hasTie = tiedTeams.length > 0;
 
@@ -86,6 +86,21 @@ const GroupTable = ({
 
   return (
     <div style={GROUP_TABLE_STYLES.mainContainer}>
+      
+      {/* 🛠️ DIREKTE KORREKTUR: CSS-Injektion gegen die Browser-Pfeile */}
+      <style>{`
+        /* Chrome, Safari, Edge, Opera */
+        input::-webkit-outer-spin-button,
+        input::-webkit-inner-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        /* Firefox */
+        input[type=number] {
+          -moz-appearance: textfield;
+        }
+      `}</style>
+
       {/* LINKE SEITE: SPIELLISTE */}
       <div style={GROUP_TABLE_STYLES.matchSection}>
         <div style={GROUP_TABLE_STYLES.headerContainer}>

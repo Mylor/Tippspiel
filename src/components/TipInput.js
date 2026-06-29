@@ -78,6 +78,21 @@ const TipInput = ({
 
   return (
     <div style={containerStyle}>
+      
+      {/* 🛠️ DIREKTE KORREKTUR: CSS-Injektion macht diese Komponente komplett autark */}
+      <style>{`
+        /* Chrome, Safari, Edge, Opera */
+        input::-webkit-outer-spin-button,
+        input::-webkit-inner-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        /* Firefox */
+        input[type=number] {
+          -moz-appearance: textfield;
+        }
+      `}</style>
+
       {!onlyWinner && (
         <div style={inputGroupStyle}>
           <input

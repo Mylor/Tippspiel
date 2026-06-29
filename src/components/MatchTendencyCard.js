@@ -2,17 +2,34 @@ import React from "react";
 import { FlagIcon } from "../Utils/teamUtils";
 
 const MatchTendencyCard = ({ match, allCommunityTips, localPlayer, isMyPhase1Submitted }) => {
-  const matchTips = allCommunityTips.filter(t => Number(t.match_id) === Number(match.id));
-  const totalTips = matchTips.length;
+  // 1. FILTER: Nur Tipps mit echten Tor-Eingaben berücksichtigen (filtert reine KO-Prognosen/Dummy-Reste heraus)
+  const matchTips = allCommunityTips.filter(t => 
+    Number(t.match_id) === Number(match.id) &&
+    t.goals_a !== null && t.goals_a !== undefined && t.goals_a !== '' &&
+    t.goals_b !== null && t.goals_b !== undefined && t.goals_b !== ''
+  );
   
+  const totalTips = matchTips.length;
+  const isKoMatch = match.stage === "ko";
+
+  // Tendenzen berechnen
   const winA = matchTips.filter(t => Number(t.goals_a) > Number(t.goals_b)).length;
-  const draw = matchTips.filter(t => Number(t.goals_a) === Number(t.goals_b)).length;
   const winB = matchTips.filter(t => Number(t.goals_a) < Number(t.goals_b)).length;
 
+  // Split-Logik für Unentschieden in der KO-Runde vs. Gruppenphase
+  const drawA = isKoMatch ? matchTips.filter(t => Number(t.goals_a) === Number(t.goals_b) && String(t.winner) === "1").length : 0;
+  const drawB = isKoMatch ? matchTips.filter(t => Number(t.goals_a) === Number(t.goals_b) && String(t.winner) === "2").length : 0;
+  // Ein reines Unentschieden gibt es nur in der Gruppe oder falls im KO kein Sieger gewählt wurde
+  const pureDraw = matchTips.filter(t => Number(t.goals_a) === Number(t.goals_b) && (!isKoMatch || (!t.winner))).length;
+
+  // Prozentanteile
   const pctA = totalTips > 0 ? (winA / totalTips) * 100 : 0;
-  const pctDraw = totalTips > 0 ? (draw / totalTips) * 100 : 0;
+  const pctDrawA = totalTips > 0 ? (drawA / totalTips) * 100 : 0;
+  const pctPureDraw = totalTips > 0 ? (pureDraw / totalTips) * 100 : 0;
+  const pctDrawB = totalTips > 0 ? (drawB / totalTips) * 100 : 0;
   const pctB = totalTips > 0 ? (winB / totalTips) * 100 : 0;
 
+  // Erwartete Tore
   let expectedGoalsA = "0,00";
   let expectedGoalsB = "0,00";
   if (totalTips > 0) {
@@ -25,16 +42,27 @@ const MatchTendencyCard = ({ match, allCommunityTips, localPlayer, isMyPhase1Sub
   const myTip = matchTips.find(t => Number(t.player_id) === Number(localPlayer.id));
   const hasRealResult = match.goals_a_real !== null && match.goals_b_real !== null && match.goals_a_real !== undefined && match.goals_b_real !== undefined && match.goals_a_real !== '';
 
+  // Reales Ergebnis & korrekte Tendenz ermitteln
   let correctTendency = null;
   if (hasRealResult) {
     const realA = Number(match.goals_a_real);
     const realB = Number(match.goals_b_real);
-    if (realA > realB) correctTendency = "A";
-    else if (realA < realB) correctTendency = "B";
-    else correctTendency = "Draw";
+    if (realA > realB) {
+      correctTendency = "A";
+    } else if (realA < realB) {
+      correctTendency = "B";
+    } else {
+      // Bei Remis im KO-Spiel entscheiden wir anhand des eingetragenen Gewinners (match.winner)
+      if (isKoMatch && match.winner) {
+        correctTendency = String(match.winner) === "1" ? "DrawA" : "DrawB";
+      } else {
+        correctTendency = "Draw";
+      }
+    }
   }
 
-  let tipColor = "#2563eb"; // Standard-Blau
+  // Eigene Tipp-Farbe bestimmen
+  let tipColor = "#2563eb"; 
   if (hasRealResult && myTip) {
     const realA = Number(match.goals_a_real);
     const realB = Number(match.goals_b_real);
@@ -44,11 +72,11 @@ const MatchTendencyCard = ({ match, allCommunityTips, localPlayer, isMyPhase1Sub
     if (realA === tipA && realB === tipB) {
       tipColor = "#eab308"; // Gold bei Volltreffer
     } else {
-      const tipTendency = tipA > tipB ? "A" : tipA < tipB ? "B" : "Draw";
-      if (tipTendency === correctTendency) {
+      const tipTendency = tipA > tipB ? "A" : tipA < tipB ? "B" : (isKoMatch && myTip.winner === "1" ? "DrawA" : "DrawB");
+      if (tipTendency === correctTendency || (!isKoMatch && tipA === tipB && correctTendency === "Draw")) {
         tipColor = "#2563eb"; // Blau bei richtiger Tendenz
       } else {
-        tipColor = "#ef4444"; // Rot bei falschem Sieger
+        tipColor = "#ef4444"; // Rot bei komplett falschem Riecher
       }
     }
   }
@@ -59,9 +87,9 @@ const MatchTendencyCard = ({ match, allCommunityTips, localPlayer, isMyPhase1Sub
       padding: "16px", marginBottom: "14px", boxShadow: "0 1px 3px rgba(0,0,0,0.05)"
     }}>
       
+      {/* Header-Bereich mit Match-Infos */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "12px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-          
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
             <span style={{ 
               backgroundColor: '#e2e8f0', color: '#475569', fontWeight: '700', fontSize: '0.65rem',
@@ -70,7 +98,9 @@ const MatchTendencyCard = ({ match, allCommunityTips, localPlayer, isMyPhase1Sub
             }}>
               {match.match_no || match.match_order}
             </span>
-            <span style={{ fontSize: "0.85rem", color: "#64748b", fontWeight: "600" }}>Gruppe {match.group_name}</span>
+            <span style={{ fontSize: "0.85rem", color: "#64748b", fontWeight: "600" }}>
+              {isKoMatch ? "KO-Phase" : `Gruppe ${match.group_name}`}
+            </span>
           </div>
 
           <span style={{ color: "#cbd5e1" }}>|</span>
@@ -100,6 +130,7 @@ const MatchTendencyCard = ({ match, allCommunityTips, localPlayer, isMyPhase1Sub
         )}
       </div>
 
+      {/* Visualisierungs-Balken der Community-Tendenzen */}
       <div style={{ display: "flex", height: "22px", width: "100%", borderRadius: "6px", overflow: "hidden", backgroundColor: "#f1f5f9", marginBottom: "12px" }}>
         {!isMyPhase1Submitted ? (
           <div style={{ width: "100%", backgroundColor: "#e2e8f0", color: "#64748b", fontSize: "0.75rem", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "600", fontStyle: "italic", gap: "4px" }}>
@@ -111,35 +142,62 @@ const MatchTendencyCard = ({ match, allCommunityTips, localPlayer, isMyPhase1Sub
           </div>
         ) : (
           <>
+            {/* 1. Sieg Team A */}
             {winA > 0 && (
               <div style={{ 
                 width: `${pctA}%`, backgroundColor: "#22c55e", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: "0.75rem", fontWeight: "700",
                 opacity: hasRealResult ? (correctTendency === "A" ? 1 : 0.25) : 1,
                 boxShadow: hasRealResult && correctTendency === "A" ? "inset 0 0 0 2px #166534" : "none",
                 transition: "opacity 0.2s ease"
-              }} title={`${match.team_a} gewinnt: ${winA} Tipps`}>
+              }} title={`${match.team_a} gewinnt nach regulärer Spielzeit: ${winA} Tipps`}>
                 {winA}
               </div>
             )}
-            {draw > 0 && (
+            
+            {/* 2. Unentschieden + Team A kommt weiter (Nur KO) */}
+            {drawA > 0 && (
               <div style={{ 
-                width: `${pctDraw}%`, backgroundColor: "#94a3b8", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: "0.75rem", fontWeight: "700",
+                width: `${pctDrawA}%`, backgroundColor: "#86efac", display: "flex", alignItems: "center", justifyContent: "center", color: "#166534", fontSize: "0.75rem", fontWeight: "700",
+                opacity: hasRealResult ? (correctTendency === "DrawA" ? 1 : 0.25) : 1,
+                boxShadow: hasRealResult && correctTendency === "DrawA" ? "inset 0 0 0 2px #166534" : "none",
+                transition: "opacity 0.2s ease"
+              }} title={`Unentschieden + ${match.team_a} kommt weiter: ${drawA} Tipps`}>
+                {drawA}
+              </div>
+            )}
+
+            {/* 3. Reines Unentschieden (Gruppe oder ohne KO-Winner) */}
+            {pureDraw > 0 && (
+              <div style={{ 
+                width: `${pctPureDraw}%`, backgroundColor: "#94a3b8", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: "0.75rem", fontWeight: "700",
                 opacity: hasRealResult ? (correctTendency === "Draw" ? 1 : 0.25) : 1,
                 boxShadow: hasRealResult && correctTendency === "Draw" ? "inset 0 0 0 2px #334155" : "none",
                 transition: "opacity 0.2s ease"
-              }} title={`Unentschieden: ${draw} Tipps`}>
-                {draw}
+              }} title={`Unentschieden: ${pureDraw} Tipps`}>
+                {pureDraw}
               </div>
             )}
+
+            {/* 4. Unentschieden + Team B kommt weiter (Nur KO) */}
+            {drawB > 0 && (
+              <div style={{ 
+                width: `${pctDrawB}%`, backgroundColor: "#c084fc", display: "flex", alignItems: "center", justifyContent: "center", color: "#581c87", fontSize: "0.75rem", fontWeight: "700",
+                opacity: hasRealResult ? (correctTendency === "DrawB" ? 1 : 0.25) : 1,
+                boxShadow: hasRealResult && correctTendency === "DrawB" ? "inset 0 0 0 2px #6d28d9" : "none",
+                transition: "opacity 0.2s ease"
+              }} title={`Unentschieden + ${match.team_b} kommt weiter: ${drawB} Tipps`}>
+                {drawB}
+              </div>
+            )}
+
+            {/* 5. Sieg Team B */}
             {winB > 0 && (
               <div style={{ 
-                width: `${pctB}%`, 
-                backgroundColor: "#8b5cf6",
-                display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: "0.75rem", fontWeight: "700",
+                width: `${pctB}%`, backgroundColor: "#8b5cf6", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: "0.75rem", fontWeight: "700",
                 opacity: hasRealResult ? (correctTendency === "B" ? 1 : 0.25) : 1,
                 boxShadow: hasRealResult && correctTendency === "B" ? "inset 0 0 0 2px #6d28d9" : "none",
                 transition: "opacity 0.2s ease"
-              }} title={`${match.team_b} gewinnt: ${winB} Tipps`}>
+              }} title={`${match.team_b} gewinnt nach regulärer Spielzeit: ${winB} Tipps`}>
                 {winB}
               </div>
             )}
@@ -147,15 +205,48 @@ const MatchTendencyCard = ({ match, allCommunityTips, localPlayer, isMyPhase1Sub
         )}
       </div>
 
+      {/* Footer-Bereich mit eigenem Tipp & dynamischer Legende */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.85rem", flexWrap: "wrap", gap: "10px" }}>
         <div style={{ fontWeight: "600", color: "#334155" }}>
-          Dein Tipp: <span style={{ color: tipColor, fontWeight: "800" }}>{myTip ? `${myTip.goals_a} : ${myTip.goals_b}` : "—"}</span>
+          Dein Tipp: <span style={{ color: tipColor, fontWeight: "800" }}>
+            {myTip ? `${myTip.goals_a} : ${myTip.goals_b}` : "—"}
+            {isKoMatch && myTip && Number(myTip.goals_a) === Number(myTip.goals_b) && (
+              <span style={{ fontSize: "0.75rem", fontWeight: "600", color: "#64748b" }}>
+                {" "}(weiter: {myTip.winner === "1" ? match.team_a : match.team_b})
+              </span>
+            )}
+          </span>
         </div>
+
         {isMyPhase1Submitted && (
-          <div style={{ display: "flex", gap: "12px", fontSize: "0.75rem", color: "#64748b", fontWeight: "600" }}>
-            <span style={{ display: "flex", alignItems: "center", gap: "4px" }}><span style={{ display: "inline-block", width: "8px", height: "8px", backgroundColor: "#22c55e", borderRadius: "50%" }}></span>{match.team_a} gewinnt</span>
-            <span style={{ display: "flex", alignItems: "center", gap: "4px" }}><span style={{ display: "inline-block", width: "8px", height: "8px", backgroundColor: "#94a3b8", borderRadius: "50%" }}></span>Unentschieden</span>
-            <span style={{ display: "flex", alignItems: "center", gap: "4px" }}><span style={{ display: "inline-block", width: "8px", height: "8px", backgroundColor: "#8b5cf6", borderRadius: "50%" }}></span>{match.team_b} gewinnt</span>
+          <div style={{ display: "flex", gap: "12px", fontSize: "0.75rem", color: "#64748b", fontWeight: "600", flexWrap: "wrap" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+              <span style={{ display: "inline-block", width: "8px", height: "8px", backgroundColor: "#22c55e", borderRadius: "50%" }}></span>
+              {match.team_a} Sieg
+            </span>
+            
+            {isKoMatch ? (
+              <>
+                <span style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                  <span style={{ display: "inline-block", width: "8px", height: "8px", backgroundColor: "#86efac", borderRadius: "50%" }}></span>
+                  Remis ({match.team_a} weiter)
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                  <span style={{ display: "inline-block", width: "8px", height: "8px", backgroundColor: "#c084fc", borderRadius: "50%" }}></span>
+                  Remis ({match.team_b} weiter)
+                </span>
+              </>
+            ) : (
+              <span style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                <span style={{ display: "inline-block", width: "8px", height: "8px", backgroundColor: "#94a3b8", borderRadius: "50%" }}></span>
+                Unentschieden
+              </span>
+            )}
+
+            <span style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+              <span style={{ display: "inline-block", width: "8px", height: "8px", backgroundColor: "#8b5cf6", borderRadius: "50%" }}></span>
+              {match.team_b} Sieg
+            </span>
           </div>
         )}
       </div>

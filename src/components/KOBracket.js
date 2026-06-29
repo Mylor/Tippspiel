@@ -42,6 +42,20 @@ const KOBracket = ({
   return (
     <div style={BRACKET_STYLES.viewport(PHASE_HEIGHTS[phase.id])}>
       
+      {/* 🛠️ DIREKTE KORREKTUR: CSS-Injektion blendet Pfeile im gesamten KO-Baum/TipInput aus */}
+      <style>{`
+        /* Chrome, Safari, Edge, Opera */
+        input::-webkit-outer-spin-button,
+        input::-webkit-inner-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        /* Firefox */
+        input[type=number] {
+          -moz-appearance: textfield;
+        }
+      `}</style>
+      
       {/* HEADER: Spalten-Reset-Buttons ausblenden bei isReadOnly */}
       <div style={BRACKET_STYLES.headerRow}>
         {Object.keys(koByRound)

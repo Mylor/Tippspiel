@@ -8,26 +8,18 @@ const StatisticsPage = ({
   allPlayers, 
   matches, 
   predictions, 
-  showDisplayName,       // NEU: Vom Parent gesteuert
-  onToggleDisplayName    // NEU: Vom Parent gesteuert
+  showDisplayName,       // Vom Parent gesteuert
+  onToggleDisplayName    // Vom Parent gesteuert
 }) => {
   const [activeTab, setActiveTab] = useState("highlights");
   const [pointsData, setPointsData] = useState([]);
   const [players, setPlayers] = useState([]);
-  const [globalMaxStats, setGlobalMaxStats] = useState(null); 
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchStatsData() {
       setLoading(true);
       try {
-        // AUSGEKOMMENTIERT FÜR SPÄTER: Lädt system_config parallel mit
-        // const [pointsRes, playersRes, configRes] = await Promise.all([
-        //   supabase.from("user_points_detail").select("*"),
-        //   supabase.from("player").select("id, name, display_name, name_color, jersey_number, supported_country"),
-        //   supabase.from("system_config").select("value").eq("key", "global_max_stats").maybeSingle()
-        // ]);
-
         const [pointsRes, playersRes] = await Promise.all([
           supabase.from("user_points_detail").select("*"),
           supabase.from("player").select("id, name, display_name, name_color, jersey_number, supported_country")
@@ -35,9 +27,6 @@ const StatisticsPage = ({
 
         setPointsData(pointsRes.data || []);
         setPlayers(playersRes.data || []);
-        
-        // AUSGEKOMMENTIERT FÜR SPÄTER
-        // setGlobalMaxStats(configRes.data?.value || null);
       } catch (err) {
         console.error("Fehler beim Laden der Statistikdaten:", err);
       } finally {
@@ -63,7 +52,8 @@ const StatisticsPage = ({
         perfectHits: 0,           // Volltreffer (Exaktes Ergebnis)
         pointsPerPhase: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
         pointsPerMatchday: {},    // Alle Punkte (Matches + Prognosen), die diesem Tag zugeordnet sind
-        prognosisPointsPerPhase: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }, // Prognosepunkte ohne expliziten Spieltag
+        prognosisPointsPerPhase: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }, // Prognosepunkte ohne expliziten Spieltag (für Timeline)
+        visualPrognosisPointsPerPhase: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }, // LOGIK-FIX: Sauberes UI-Tracking aller Prognose-Punkte pro Phase
         rankHistory: {},          // Der Rang des Spielers am Ende dieses Spieltags
         currentRankReal: 1,       
         currentRankMatchOnly: 1,  
@@ -110,10 +100,16 @@ const StatisticsPage = ({
       } else {
         playerStatsMap[pId].prognosisPointsOnly += pts;
         
+        // Timeline-Bedingung bleibt unverändert, um historische Ränge nicht zu verfälschen
         if ((row.matchday === undefined || row.matchday === null || row.matchday === "") && row.phase_id) {
           if (playerStatsMap[pId].prognosisPointsPerPhase[row.phase_id] !== undefined) {
             playerStatsMap[pId].prognosisPointsPerPhase[row.phase_id] += pts;
           }
+        }
+
+        // LOGIK-FIX: Alle Prognose-Punkte fließen unabhängig vom Spieltag hier rein für die Balken-Anzeige
+        if (row.phase_id && playerStatsMap[pId].visualPrognosisPointsPerPhase[row.phase_id] !== undefined) {
+          playerStatsMap[pId].visualPrognosisPointsPerPhase[row.phase_id] += pts;
         }
       }
 
@@ -168,8 +164,8 @@ const StatisticsPage = ({
       
       const winnersOnThisDay = maxPointsOnThisDay > 0
         ? daySortedForWinners
-            .filter(entry => entry.pointsOnThisDay === maxPointsOnThisDay)
-            .map(entry => playerStatsMap[entry.id])
+          .filter(entry => entry.pointsOnThisDay === maxPointsOnThisDay)
+          .map(entry => playerStatsMap[entry.id])
         : [];
 
       matchdayWinners[day] = {
@@ -289,7 +285,6 @@ const StatisticsPage = ({
   const renderPlayerWithAssets = (player, isMe = false, badge = null) => {
     if (!player) return null;
     
-    // Nutzt die übergebene Prop: showDisplayName ? Anzeigename : Echter Name
     const nameToRender = showDisplayName ? player.displayName : player.name;
 
     return (
@@ -330,20 +325,16 @@ const StatisticsPage = ({
     };
   };
 
-  // AUSGEKOMMENTIERT FÜR SPÄTER: Hilfsvariablen für Max-Werte
-  // const maxSpielTipps = globalMaxStats?.max_spiel_tipps || 0;
-  // const maxPrognosen = globalMaxStats?.max_prognosen || 0;
-
   return (
     <div style={{ padding: "24px", backgroundColor: "#ffffff", minHeight: "100vh", fontFamily: "sans-serif" }}>
       
       {/* HEADER BEREICH MIT TITEL UND SWITCH-BUTTON */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "12px" }}>
         <h2 style={{ color: "#1f2937", fontSize: "24px", fontWeight: "600", margin: 0 }}>
-          📊 Live-Statistikzentrum
+          Horst Live-Statistikzentrum
         </h2>
         <button
-          onClick={onToggleDisplayName} // Ruft die Funktion aus dem Parent auf
+          onClick={onToggleDisplayName}
           style={{
             padding: "8px 14px",
             backgroundColor: "#f8fafc",
@@ -416,15 +407,6 @@ const StatisticsPage = ({
                 <h3 style={{ ...cardValueStyle, color: "#2563eb" }}>{stats.myStats.matchPointsOnly} Pkt</h3>
                 <p style={cardSubStyle}>Globaler Durchschnitt: {stats.avgMatchPoints.toFixed(1)}</p>
               </div>
-              {/* AUSGEKOMMENTIERT FÜR SPÄTER: Max-Ausbeute Box
-              <div style={{ textAlign: "right", borderLeft: "1px solid #e2e8f0", paddingLeft: "16px", minWidth: "105px" }}>
-                <p style={cardLabelStyle}>Ausbeute Max.</p>
-                <h3 style={{ ...cardValueStyle, color: "#2563eb", fontSize: "1.6rem" }}>
-                  {maxSpielTipps > 0 ? ((stats.myStats.matchPointsOnly / maxSpielTipps) * 100).toFixed(1) : "0.0"}%
-                </h3>
-                <p style={cardSubStyle}>von {maxSpielTipps} möglichen</p>
-              </div>
-              */}
             </div>
 
             {/* CARD 3: PROGNOSEN */}
@@ -434,43 +416,68 @@ const StatisticsPage = ({
                 <h3 style={{ ...cardValueStyle, color: "#7e22ce" }}>{stats.myStats.prognosisPointsOnly} Pkt</h3>
                 <p style={cardSubStyle}>Anteil an Gesamtpunkten: {((stats.myStats.prognosisPointsOnly / (stats.myStats.totalPoints || 1)) * 100).toFixed(0)}%</p>
               </div>
-              {/* AUSGEKOMMENTIERT FÜR SPÄTER: Max-Ausbeute Box
-              <div style={{ textAlign: "right", borderLeft: "1px solid #e2e8f0", paddingLeft: "16px", minWidth: "105px" }}>
-                <p style={cardLabelStyle}>Ausbeute Max.</p>
-                <h3 style={{ ...cardValueStyle, color: "#7e22ce", fontSize: "1.6rem" }}>
-                  {maxPrognosen > 0 ? ((stats.myStats.prognosisPointsOnly / maxPrognosen) * 100).toFixed(1) : "0.0"}%
-                </h3>
-                <p style={cardSubStyle}>von {maxPrognosen} möglichen</p>
-              </div>
-              */}
             </div>
 
           </div>
 
           {/* PROGRESS BARS */}
-          <div style={{ ...cardStyle, maxWidth: "600px" }}>
-            <h4 style={{ margin: "0 0 16px 0", color: "#1f2937", fontSize: "1.1rem" }}>Deine Punkteausbeute nach Phasen</h4>
+          <div style={{ ...cardStyle, maxWidth: "650px", width: "100%" }}>
+            <h4 style={{ margin: "0 0 20px 0", color: "#1f2937", fontSize: "1.1rem", fontWeight: "600" }}>
+              Deine Punkteausbeute nach Phasen
+            </h4>
+            
             {[1, 2, 3, 4, 5].map(phase => {
-              const userPts = stats.myStats.pointsPerPhase[phase];
+              const totalPts = stats.myStats.pointsPerPhase[phase] || 0;
+              // LOGIK-FIX: Nutzt nun visualPrognosisPointsPerPhase für exakte visuelle Aufteilung
+              const prognosisPts = stats.myStats.visualPrognosisPointsPerPhase[phase] || 0;
+              const tipPts = Math.max(0, totalPts - prognosisPts); 
               
-              // AUSGEKOMMENTIERT FÜR SPÄTER: Echte Max-Berechnung für Fortschrittsbalken
-              // const maxPhasePoints = globalMaxStats?.phases?.[String(phase)] || 0;
-              // const barPercentage = maxPhasePoints > 0 ? Math.min((userPts / maxPhasePoints) * 100, 100) : 0;
-              const barPercentage = 0; 
+              const maxPhasePoints = Math.max(stats.phaseWinners[phase]?.points || 0, 1);
+              
+              // Gerundete Prozentwerte verhindern unsaubere Nachkommastellen im Stylesheet
+              const tipPercentage = Math.round((tipPts / maxPhasePoints) * 100);
+              const prognosisPercentage = Math.round((prognosisPts / maxPhasePoints) * 100);
 
               return (
-                <div key={phase} style={{ marginBottom: "14px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.88rem", fontWeight: "600", color: "#475569", marginBottom: "4px" }}>
+                <div key={phase} style={{ marginBottom: "20px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.88rem", fontWeight: "600", color: "#475569", marginBottom: "6px" }}>
                     <span>Phase {phase}</span>
-                    <span style={{ marginLeft: "auto" }}>
-                      {userPts} Pkt
-                      {/* AUSGEKOMMENTIERT FÜR SPÄTER:
-                      {maxPhasePoints > 0 ? ` (Max. möglich: ${maxPhasePoints})` : " (Noch keine Spiele gewertet)"} 
-                      */}
+                    <span style={{ color: "#334155" }}>
+                      <strong style={{ color: "#1e293b" }}>{totalPts}</strong>
+                      <span style={{ color: "#94a3b8", fontWeight: "normal" }}> / {maxPhasePoints} Pkt</span>
                     </span>
                   </div>
-                  <div style={{ width: "100%", height: "10px", backgroundColor: "#f1f5f9", borderRadius: "10px", overflow: "hidden" }}>
-                    <div style={{ width: `${barPercentage}%`, height: "100%", backgroundColor: "#3b82f6", borderRadius: "10px", transition: "width 0.5s ease" }} />
+
+                  <div style={{ width: "100%", height: "12px", backgroundColor: "#f1f5f9", borderRadius: "6px", overflow: "hidden", display: "flex" }}>
+                    <div 
+                      style={{ 
+                        width: `${tipPercentage}%`, 
+                        height: "100%", 
+                        backgroundColor: "#2563eb", 
+                        transition: "width 0.5s ease" 
+                      }} 
+                      title={`Spiel-Tipps: ${tipPts} Pkt`}
+                    />
+                    <div 
+                      style={{ 
+                        width: `${prognosisPercentage}%`, 
+                        height: "100%", 
+                        backgroundColor: "#7e22ce", 
+                        transition: "width 0.5s ease" 
+                      }} 
+                      title={`Prognosen: ${prognosisPts} Pkt`}
+                    />
+                  </div>
+
+                  <div style={{ display: "flex", gap: "16px", fontSize: "0.78rem", color: "#64748b", marginTop: "6px", paddingLeft: "2px" }}>
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                      <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#2563eb", display: "inline-block" }} />
+                      <span>Tipps: <strong style={{ color: "#334155" }}>{tipPts}</strong></span>
+                    </div>
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                      <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#7e22ce", display: "inline-block" }} />
+                      <span>Prognosen: <strong style={{ color: "#334155" }}>{prognosisPts}</strong></span>
+                    </div>
                   </div>
                 </div>
               );
@@ -516,7 +523,7 @@ const StatisticsPage = ({
                         </td>
                       </tr>
                     )))}
-                  </tbody>
+                </tbody>
               </table>
             </div>
 
@@ -705,7 +712,7 @@ const StatisticsPage = ({
             </div>
           </div>
         </div>
-      )}
+      )}      
     </div>
   );
 };
